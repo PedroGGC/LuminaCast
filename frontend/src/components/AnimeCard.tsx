@@ -5,7 +5,7 @@ import type { Anime } from "../lib/api";
 import { useMyListStore } from "../store/myListStore";
 
 interface Props {
-  anime: Anime;
+  anime: Anime & { subtitle?: string };
 }
 
 export default function AnimeCard({ anime }: Props) {
@@ -63,12 +63,13 @@ export default function AnimeCard({ anime }: Props) {
         <div className="bg-black/10 backdrop-blur-xl border border-white/10 shadow-2xl rounded-md p-3">
           <h3 className="text-sm font-semibold truncate">{anime.title}</h3>
           <div className="flex items-center gap-2 mt-1 text-xs text-lunima-light-gray">
+            {anime.subtitle && <span className="text-lunima-gold font-medium">{anime.subtitle}</span>}
             {anime.rating && <><span className="text-green-400 font-medium">{Math.round(anime.rating * 10)}%</span><Star size={12} className="text-yellow-400" fill="currentColor" /></>}
-            <span>{
+            {!anime.subtitle && <span>{
               anime.media_type === 'anime' ? 'Anime' : 
               anime.media_type === 'movie' || anime.media_type === 'filme' ? 'Filme' : 
               'Desenho'
-            }</span>
+            }</span>}
           </div>
 
           <div className="flex items-center gap-2 mt-2">

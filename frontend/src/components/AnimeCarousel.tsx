@@ -5,7 +5,7 @@ import AnimeCard from "./AnimeCard";
 
 interface Props {
   title: string;
-  animes: Anime[];
+  animes: (Anime & { subtitle?: string })[];
 }
 
 export default function AnimeCarousel({ title, animes }: Props) {

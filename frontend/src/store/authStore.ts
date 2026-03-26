@@ -14,6 +14,7 @@ interface AuthState {
   setAuth: (token: string, user: User) => void;
   logout: () => void;
   isTokenValid: () => boolean;
+  getUserId: () => number;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -34,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
           return false;
         }
       },
+      getUserId: () => get().user?.id ?? 1,
     }),
     {
       name: 'luminacast-auth-storage',

@@ -10,6 +10,7 @@ import {
   Loader2,
   Plus,
   Check,
+  HelpCircle,
 } from "lucide-react";
 import { api, MediaEpisode, AnimeDetail as AnimeDetailType } from "../lib/api";
 import { useMyListStore } from "../store/myListStore";
@@ -88,6 +89,10 @@ export default function AnimeDetail() {
   const addToMyList = useMyListStore((state) => state.add);
   const [listStatus, setListStatus] = useState<"idle" | "adding" | "added">("idle");
 
+  // Watch history state
+  const [watchedEpisodes, setWatchedEpisodes] = useState<number[]>([]);
+  const [hoveredWatchedEp, setHoveredWatchedEp] = useState<number | null>(null);
+
   // Sync with global store
   useEffect(() => {
     if (id && myListIds.includes(Number(id))) {
@@ -116,6 +121,17 @@ export default function AnimeDetail() {
         setAnime({ ...media, episodes: [] });
         setEpisodes(episodes);
         setCanDownload(can_download);
+
+        // Busca histórico de episódios assistidos
+        const mediaId = media.external_id || id;
+        try {
+          const historyRes = await api.get(`/api/history/${mediaId}`);
+          if (historyRes.data && historyRes.data.watched_episodes) {
+            setWatchedEpisodes(historyRes.data.watched_episodes);
+          }
+        } catch (e) {
+          console.error("Erro ao buscar histórico:", e);
+        }
 
         if (episodes.length > 0) {
           const firstSeason = Math.min(...episodes.map((e: MediaEpisode) => e.season_number));
@@ -366,17 +382,39 @@ export default function AnimeDetail() {
             <div className="flex flex-col gap-2">
               {currentSeasonEpisodes.map((ep) => {
                 const state = downloadState[ep.id];
+                const isWatched = watchedEpisodes.includes(ep.episode_number);
                 return (
-                  <div key={ep.id} className="flex items-center gap-4 bg-white/5 hover:bg-white/10 rounded-lg overflow-hidden transition group border border-white/5">
+                  <div key={ep.id} className={`flex items-center gap-4 rounded-lg overflow-hidden transition group border ${isWatched ? 'bg-white/5 border-white/10 opacity-60' : 'bg-white/5 hover:bg-white/10 border-white/5'}`}>
                     <div className="relative flex-shrink-0 w-40 aspect-video bg-zinc-900 overflow-hidden">
                       <img src={ep.thumbnail_url || ""} alt={ep.title || ""} className="w-full h-full object-cover" onError={(e) => {(e.target as HTMLImageElement).style.display = "none";}} />
                     </div>
                     <div className="flex-1 py-3 pr-4 min-w-0">
-                      <p className="text-xs text-lunima-gold font-semibold mb-0.5">S{ep.season_number} · EP {ep.episode_number}</p>
+                      <p className={`text-xs font-semibold mb-0.5 ${isWatched ? 'text-lunima-gray' : 'text-lunima-gold'}`}>S{ep.season_number} · EP {ep.episode_number}{isWatched && ' · Assistido'}</p>
                       <p className="text-sm text-white font-medium truncate">{ep.title || `Episódio ${ep.episode_number}`}</p>
                     </div>
                     <div className="flex items-center gap-2 mr-4 flex-shrink-0">
-                      <Link to={`/watch/${ep.id}`} className="w-9 h-9 flex items-center justify-center border border-white/20 rounded-full hover:bg-white hover:text-black text-white transition"><Play size={16} fill="currentColor" /></Link>
+                      {isWatched ? (
+                        <div 
+                          className="w-9 h-9 flex items-center justify-center border border-green-500/50 rounded-full cursor-pointer group/play-btn relative"
+                          onMouseEnter={() => setHoveredWatchedEp(ep.episode_number)}
+                          onMouseLeave={() => setHoveredWatchedEp(null)}
+                        >
+                          {hoveredWatchedEp === ep.episode_number ? (
+                            <>
+                              <Link to={`/watch/${ep.id}`} className="w-7 h-7 flex items-center justify-center bg-white rounded-full hover:bg-white/80 text-black transition">
+                                <Play size={14} fill="currentColor" />
+                              </Link>
+                              <HelpCircle size={12} className="absolute -top-1 -right-1 text-lunima-gold" />
+                            </>
+                          ) : (
+                            <Check size={16} className="text-green-500" />
+                          )}
+                        </div>
+                      ) : (
+                        <Link to={`/watch/${ep.id}`} className="w-9 h-9 flex items-center justify-center border border-white/20 rounded-full hover:bg-white hover:text-black text-white transition">
+                          <Play size={16} fill="currentColor" />
+                        </Link>
+                      )}
                       <button onClick={() => canDownload && handleSingleDownload(ep)} disabled={!canDownload || state === 'downloading'} className={`w-9 h-9 flex items-center justify-center border rounded-full transition disabled:opacity-40 ${canDownload ? "border-white/20 hover:bg-lunima-gold hover:text-black text-white" : "border-white/10 text-white/30 cursor-not-allowed"}`}>
                         {state === 'downloading' ? <Loader2 size={16} className="animate-spin" /> : state === 'complete' ? <Check size={16} className="text-green-500" /> : <Download size={16} />}
                       </button>

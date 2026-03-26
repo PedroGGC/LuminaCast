@@ -4,6 +4,14 @@ import HeroBanner from "../components/HeroBanner";
 import AnimeCarousel from "../components/AnimeCarousel";
 import { useMyListStore } from "../store/myListStore";
 
+interface HistoryItem {
+  media_id: string;
+  media_type: string;
+  last_episode: number;
+  title: string;
+  poster_url: string | null;
+}
+
 interface CarouselItem {
   id: string;
   mal_id?: number;
@@ -25,6 +33,7 @@ export default function Home() {
   const [featured, setFeatured] = useState<Anime | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
 
   const fetchMyList = useMyListStore(state => state.fetchList);
 
@@ -34,9 +43,18 @@ export default function Home() {
 
     const fetchDatas = async () => {
       try {
+        // Busca histórico em paralelo
+        const historyPromise = api.get("/api/history").catch(() => ({ data: [] }));
+        
         // Consome a API /api/home com carrosséis dinâmicos
         const response = await api.get("/api/home");
         const data = response.data;
+        
+        // Processa histórico
+        const historyRes = await historyPromise;
+        if (historyRes.data && historyRes.data.length > 0) {
+          setHistory(historyRes.data);
+        }
 
         if (data.carousels && data.carousels.length > 0) {
           setCarousels(data.carousels);
@@ -119,11 +137,29 @@ export default function Home() {
     }),
   }));
 
+  // Converte histórico para formato de anime (com subtítulo do episódio)
+  const historyAnimes = history.map((item) => {
+    const type = item.media_type === 'anime' ? 'anime' : 'desenho';
+    const prefix = type === 'anime' ? 'mal_' : 'tmdb_';
+    return {
+      id: `${prefix}${item.media_id.replace(prefix, '')}`,
+      title: item.title,
+      poster_url: item.poster_url,
+      cover_image: item.poster_url,
+      synopsis: "",
+      media_type: type,
+      subtitle: `Episódio ${item.last_episode}`,
+    };
+  });
+
   return (
     <main>
       {featured && <HeroBanner anime={featured} />}
 
       <div className="-mt-16 relative z-10 space-y-2 pb-16">
+        {historyAnimes.length > 0 && (
+          <AnimeCarousel title="Continuar Assistindo" animes={historyAnimes} />
+        )}
         {categories.map((cat) => (
           <AnimeCarousel key={cat.id} title={cat.name} animes={cat.animes} />
         ))}

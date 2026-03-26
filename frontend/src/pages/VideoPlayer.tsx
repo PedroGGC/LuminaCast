@@ -65,6 +65,17 @@ export default function VideoPlayer() {
           setActiveUrl(data.embed_urls[0]);
           setSelectedServerIndex(0);
         }
+
+        // Registra no histórico
+        const mediaId = String(data.media_id);
+        const mediaType = data.media_type || 'anime';
+        const episodeNumber = data.episode_number;
+        
+        if (mediaId && episodeNumber) {
+          api.post('/api/history', null, {
+            params: { media_id: mediaId, media_type: mediaType, episode_number: episodeNumber }
+          }).catch(console.error);
+        }
       })
       .catch((e) => setError(e.response?.data?.detail ?? e.message))
       .finally(() => setLoading(false));
