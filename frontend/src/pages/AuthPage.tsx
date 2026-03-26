@@ -1,0 +1,173 @@
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { api } from '../lib/api';
+import { useAuthStore } from '../store/authStore';
+import { Github, Linkedin, Mail } from 'lucide-react';
+import './AuthPage.css';
+
+export default function AuthPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const setAuth = useAuthStore((state) => state.setAuth);
+
+  const isRegisterRoute = location.pathname === '/register';
+  const [isActive, setIsActive] = useState(isRegisterRoute);
+
+  // Form states
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [registerName, setRegisterName] = useState('');
+  const [registerEmail, setRegisterEmail] = useState('');
+  const [registerPassword, setRegisterPassword] = useState('');
+  
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsActive(location.pathname === '/register');
+    setError(null);
+  }, [location.pathname]);
+
+  const handleToggle = (registering: boolean) => {
+    navigate(registering ? '/register' : '/login');
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const formData = new URLSearchParams();
+      formData.append('username', loginIdentifier);
+      formData.append('password', loginPassword);
+
+      const res = await api.post('/auth/login', formData, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+      const { access_token } = res.data;
+      
+      // Busca as informações reais do usuário
+      const userRes = await api.get('/auth/me', {
+        headers: { Authorization: `Bearer ${access_token}` }
+      });
+      
+      setAuth(access_token, userRes.data);
+      navigate('/home');
+    } catch (err: any) {
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+        if (Array.isArray(detail)) {
+          setError(detail.map((e: any) => e.msg).join(', '));
+        } else {
+          setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        }
+      } else {
+        setError('Ocorreu um erro no login. Verifique suas credenciais.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      await api.post('/auth/register', {
+        nome: registerName,
+        email: registerEmail,
+        senha: registerPassword,
+      });
+      
+      // Auto-login after successful registration
+      const formData = new URLSearchParams();
+      formData.append('username', registerEmail);
+      formData.append('password', registerPassword);
+      const res = await api.post('/auth/login', formData, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+      setAuth(res.data.access_token, { id: 0, nome: registerName, email: registerEmail });
+      navigate('/home');
+    } catch (err: any) {
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+        if (Array.isArray(detail)) {
+          setError(detail.map((e: any) => e.msg).join(', '));
+        } else {
+          setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        }
+      } else {
+        setError('Ocorreu um erro no cadastro. Tente novamente.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div 
+      className="min-h-screen bg-black/50 bg-blend-overlay bg-cover bg-center flex items-center justify-center p-4 font-sans"
+      style={{
+        backgroundImage: 'url(https://assets.nflxext.com/ffe/siteui/vlv3/f841d4c7-10e1-40af-bcae-07a3f8dc141a/f6d7434e-d6de-4185-a6d4-c77a2d08737b/US-en-20220502-popsignuptwoweeks-perspective_alpha_website_medium.jpg)'
+      }}
+    >
+      <div className={`auth-container ${isActive ? 'active' : ''}`} id="container">
+        
+        <div className="form-container sign-up">
+            <form onSubmit={handleRegister}>
+                <h1 className="text-white text-3xl font-bold">Criar Conta</h1>
+                <div className="social-icons">
+                    <a href="#" className="icon"><Github size={18} /></a>
+                    <a href="#" className="icon"><Mail size={18} /></a>
+                    <a href="#" className="icon"><Linkedin size={18} /></a>
+                </div>
+                <span>ou use seu email para se registrar</span>
+                
+                {error && isActive && <div className="text-[#FFD700] text-sm my-2 text-left w-full">{error}</div>}
+
+                <input type="text" placeholder="Nome" value={registerName} onChange={e => setRegisterName(e.target.value)} required />
+                <input type="email" placeholder="Email" value={registerEmail} onChange={e => setRegisterEmail(e.target.value)} required />
+                <input type="password" placeholder="Senha" value={registerPassword} onChange={e => setRegisterPassword(e.target.value)} required />
+                <button type="submit" className="auth-btn" disabled={loading}>{loading ? 'Aguarde...' : 'Sign Up'}</button>
+            </form>
+        </div>
+
+        <div className="form-container sign-in">
+            <form onSubmit={handleLogin}>
+                <h1 className="text-white text-3xl font-bold">Entrar</h1>
+                <div className="social-icons">
+                    <a href="#" className="icon"><Github size={18} /></a>
+                    <a href="#" className="icon"><Mail size={18} /></a>
+                    <a href="#" className="icon"><Linkedin size={18} /></a>
+                </div>
+                <span>ou use sua conta de email</span>
+                
+                {error && !isActive && <div className="text-[#FFD700] text-sm my-2 text-left w-full">{error}</div>}
+
+                <input type="text" placeholder="E-mail ou Nome de Usuário" value={loginIdentifier} onChange={e => setLoginIdentifier(e.target.value)} required />
+                <input type="password" placeholder="Senha" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required />
+                <a href="#">Esqueceu a senha?</a>
+                <button type="submit" className="auth-btn" disabled={loading}>{loading ? 'Aguarde...' : 'Sign In'}</button>
+            </form>
+        </div>
+
+        <div className="toggle-container">
+            <div className="toggle">
+                <div className="toggle-panel toggle-left">
+                    <h1 className="text-white text-3xl font-bold text-shadow">Bem-vindo de volta!</h1>
+                    <p className="text-shadow">Entre com seus dados para conectar-se conosco novamente.</p>
+                    <button type="button" className="auth-btn hidden-btn" onClick={() => handleToggle(false)}>Sign In</button>
+                </div>
+                <div className="toggle-panel toggle-right">
+                    <h1 className="text-white text-3xl font-bold text-shadow">Olá, Amigo!</h1>
+                    <p className="text-shadow">Cadastre-se com seus dados para iniciar sua jornada.</p>
+                    <button type="button" className="auth-btn hidden-btn" onClick={() => handleToggle(true)}>Sign Up</button>
+                </div>
+            </div>
+        </div>
+        
+      </div>
+    </div>
+  );
+}
