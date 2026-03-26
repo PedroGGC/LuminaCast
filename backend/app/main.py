@@ -17,6 +17,7 @@ from app.routes.media import router as media_router
 from app.routes.sync import router as sync_router
 from app.routes.home import router as home_router
 from app.seed import seed_database, auto_seed_database
+from app.routes.history import router as history_router
 
 
 @asynccontextmanager
@@ -53,6 +54,7 @@ app.include_router(user_list_router)
 app.include_router(media_router)
 app.include_router(sync_router)
 app.include_router(home_router)
+app.include_router(history_router)
 
 
 @app.get("/")

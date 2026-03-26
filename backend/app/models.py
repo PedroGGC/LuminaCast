@@ -131,3 +131,19 @@ class JikanCache(Base):
     created_at = Column(
         String(50)
     )  # Simplificado para String para evitar complexidade de DateTime em SQLite
+
+
+class WatchHistory(Base):
+    __tablename__ = "watch_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    media_id = Column(String(100), nullable=False)  # "mal_59978" ou TMDB ID
+    media_type = Column(String(50), nullable=False)  # "anime", "movie", "tv"
+    last_episode = Column(Integer, default=0)
+    watched_episodes = Column(String(500), default="[]")  # JSON string list
+    updated_at = Column(String(50))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "media_id", name="uix_user_media_history"),
+    )
