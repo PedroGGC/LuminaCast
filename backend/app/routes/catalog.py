@@ -57,7 +57,7 @@ async def search_media(q: str, media_type: Optional[str] = None):
         except Exception as e:
             print(f"[Search] Erro Jikan: {e}")
 
-    # 2. TMDB (Filmes/Séries/Desenhos) — filtro anti-anime aplicado em search_tmdb
+    # 2. TMDB (Filmes/Séries/Desenhos) — filtro aplicado em search_tmdb
     if media_type is None or media_type in ["western", "desenho"]:
         try:
             tmdb_results = await search_tmdb(q)

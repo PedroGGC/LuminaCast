@@ -65,7 +65,7 @@ async def get_media_detail(
         media = db.query(Media).filter(Media.external_id == media_id).first()
 
     # ─── 3. FALLBACK DE SEGURANÇA (Para itens do Seed) ───
-    # Se ainda não sabemos o tipo, a mídia não está no banco e o ID é numérico
+    # Se ainda não sabe o tipo, a mídia não está no banco e o ID é numérico
     if not media and not media_type and media_id.isdigit():
         from app.models import AnimeMapping  # Importa o modelo de mapping
 

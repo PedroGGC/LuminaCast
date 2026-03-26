@@ -47,7 +47,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     if not user or not verify_password(form_data.password, user.senha_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciais incorretas. Verifique seu e-mail, nome de usuário ou senha.",
+            detail="Informações incorretas. Verifique seu e-mail, nome de usuário ou senha.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     

@@ -22,7 +22,7 @@ from app.routes.history import router as history_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables & seed
+    # create tables & seed
     Base.metadata.create_all(bind=engine)
     init_db()
     seed_database()
