@@ -283,7 +283,7 @@ export default function AnimeDetail() {
         <div className="absolute inset-0 bg-gradient-to-t from-lunima-black via-lunima-black/50 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-lunima-black/70 via-transparent to-transparent" />
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/home")}
           className="absolute top-24 left-6 lg:left-12 z-20 flex items-center gap-2 text-sm text-lunima-light-gray hover:text-white transition"
         >
           <ArrowLeft size={18} /> Voltar
