@@ -21,3 +21,8 @@ dist/
 # nul
 nul
 .planning
+luminacast.db-shm
+luminacast.db-wal
+data
+DEPLOY_PLAN.md
+REFACTOR.md

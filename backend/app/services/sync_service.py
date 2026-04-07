@@ -81,10 +81,53 @@ async def sync_anime_by_mal_id(mal_id: int, db: Session):
         if not jikan_year:
             jikan_year = data.get("year")
 
-        # 2. Animes usam 100% dados nativos do Jikan (TMDB proibido para animes)
-        print(f"[Enrichment] Mídia tipo 'anime'. Usando dados nativos do Jikan.")
+        # Busca dados do TMDB para enriquecimento visual (sinopse pt-BR, backdrop HQ, thumbnails HQ, títulos pt-BR)
+        tmdb_enrichment = {}
+        tmdb_meta = {}
+        try:
+            from app.services.tmdb import search_tmdb_by_title, get_tmdb_episodes
 
-        # 3. Salva/Atualiza Mídia
+            tmdb_match = await search_tmdb_by_title(
+                title=title,
+                title_english=data.get("title_english"),
+                mal_id=mal_id,
+                year=jikan_year,
+            )
+            if tmdb_match:
+                # Enriquece metadados da mídia (sinopse pt-BR, backdrop HQ)
+                if tmdb_match.get("synopsis"):
+                    tmdb_meta["synopsis"] = tmdb_match["synopsis"]
+                if tmdb_match.get("backdrop_path"):
+                    tmdb_meta["backdrop_url"] = (
+                        f"https://image.tmdb.org/t/p/original{tmdb_match['backdrop_path']}"
+                    )
+                if tmdb_match.get("poster_path"):
+                    tmdb_meta["poster_url"] = (
+                        f"https://image.tmdb.org/t/p/w500{tmdb_match['poster_path']}"
+                    )
+
+                # Enriquece episódios
+                if tmdb_match.get("season_data"):
+                    tmdb_eps = await get_tmdb_episodes(
+                        tmdb_match["tmdb_id"],
+                        tmdb_match["season_number"],
+                        tmdb_match["season_data"],
+                    )
+                    for ep in tmdb_eps:
+                        tmdb_enrichment[ep["episode_number"]] = {
+                            "title": ep.get("title"),
+                            "thumbnail_url": f"https://image.tmdb.org/t/p/w500{ep['still_path']}"
+                            if ep.get("still_path")
+                            else None,
+                            "synopsis": ep.get("synopsis"),
+                        }
+                    print(
+                        f"[Sync] TMDB enrichment: {len(tmdb_enrichment)} eps + metadados pt-BR para MAL {mal_id}"
+                    )
+        except Exception as e:
+            print(f"[Sync] Erro ao enriquecer com TMDB: {e}")
+
+        # 2. Salva/Atualiza Mídia (com enriquecimento TMDB se disponível)
         media = (
             db.query(Media)
             .filter((Media.external_id == str(mal_id)) & (Media.media_type == "anime"))
@@ -96,17 +139,17 @@ async def sync_anime_by_mal_id(mal_id: int, db: Session):
                 external_id=str(mal_id),
                 title=title,
                 original_title=original,
-                synopsis=synopsis,
-                poster_url=poster,
-                backdrop_url=backdrop,
+                synopsis=tmdb_meta.get("synopsis") or synopsis,
+                poster_url=tmdb_meta.get("poster_url") or poster,
+                backdrop_url=tmdb_meta.get("backdrop_url") or backdrop,
                 media_type="anime",
             )
             db.add(media)
         else:
             media.title = title
-            media.synopsis = synopsis
-            media.poster_url = poster
-            media.backdrop_url = backdrop
+            media.synopsis = tmdb_meta.get("synopsis") or synopsis
+            media.poster_url = tmdb_meta.get("poster_url") or poster
+            media.backdrop_url = tmdb_meta.get("backdrop_url") or backdrop
 
         db.commit()
         db.refresh(media)
@@ -115,7 +158,7 @@ async def sync_anime_by_mal_id(mal_id: int, db: Session):
         db.query(MediaEpisode).filter_by(media_id=media.id).delete()
         db.commit()
 
-        # Busca episódios (paginado se necessário)
+        # Busca episódios do Jikan (paginado se necessário) — define a contagem real
         all_episodes = []
         page = 1
         while True:
@@ -132,6 +175,42 @@ async def sync_anime_by_mal_id(mal_id: int, db: Session):
             if page > 5:
                 break
 
+        # Cruza com episódios disponíveis no animefire para evitar "episódios fantasmas"
+        provider_episodes = set()
+        try:
+            from app.services.scraper import (
+                resolve_provider_slug,
+                list_provider_episodes,
+                search_provider_candidates,
+            )
+
+            provider_url = await resolve_provider_slug(mal_id)
+            if provider_url:
+                # Usa o slug completo da URL (animefire precisa do slug completo)
+                full_slug = provider_url.rstrip("/").split("/")[-1]
+                provider_episodes = set(await list_provider_episodes(full_slug))
+                print(
+                    f"[Sync] Animefire tem {len(provider_episodes)} episódios disponíveis para MAL {mal_id} (via slug cache)"
+                )
+            else:
+                # Fallback: busca direta pelo título no provider
+                print(
+                    f"[Sync] Slug não encontrado no cache, buscando '{title}' no animefire..."
+                )
+                candidates = await search_provider_candidates(title)
+                if candidates:
+                    full_slug = candidates[0].rstrip("/").split("/")[-1]
+                    provider_episodes = set(await list_provider_episodes(full_slug))
+                    print(
+                        f"[Sync] Animefire tem {len(provider_episodes)} episódios disponíveis para MAL {mal_id} (via busca direta)"
+                    )
+                else:
+                    print(
+                        f"[Sync] Nenhum candidato encontrado no animefire para '{title}'"
+                    )
+        except Exception as e:
+            print(f"[Sync] Erro ao verificar episódios no provider: {e}")
+
         if not all_episodes:
             new_ep = MediaEpisode(
                 media_id=media.id,
@@ -144,8 +223,20 @@ async def sync_anime_by_mal_id(mal_id: int, db: Session):
         else:
             for ep in all_episodes:
                 real_num = ep.get("number") or ep.get("mal_id")
-                ep_title = ep.get("title") or f"Episódio {real_num}"
-                ep_thumbnail = media.poster_url
+                if not real_num:
+                    continue
+
+                # Se conseguimos a lista do provider, só insere eps disponíveis
+                if provider_episodes and real_num not in provider_episodes:
+                    print(f"[Sync] Pulando EP {real_num} (não disponível no animefire)")
+                    continue
+
+                # Usa dados do TMDB se disponíveis, senão fallback Jikan
+                enriched = tmdb_enrichment.get(real_num, {})
+                ep_title = (
+                    enriched.get("title") or ep.get("title") or f"Episódio {real_num}"
+                )
+                ep_thumbnail = enriched.get("thumbnail_url") or media.poster_url
 
                 stmt = (
                     sqlite_insert(MediaEpisode)
@@ -165,6 +256,48 @@ async def sync_anime_by_mal_id(mal_id: int, db: Session):
                     )
                 )
                 db.execute(stmt)
+
+            # Após processar todos os eps do Jikan, criar placeholders para eps que existem
+            # no provider mas não estão no Jikan (ex: One Piece eps 101-474)
+            if provider_episodes:
+                jikan_nums = {
+                    ep.get("number") or ep.get("mal_id")
+                    for ep in all_episodes
+                    if ep.get("number") or ep.get("mal_id")
+                }
+                missing_nums = sorted(provider_episodes - jikan_nums)
+
+                if missing_nums:
+                    print(
+                        f"[Sync] Criando {len(missing_nums)} placeholders (provider-only)"
+                    )
+                    for num in missing_nums:
+                        placeholder_stmt = (
+                            sqlite_insert(MediaEpisode)
+                            .values(
+                                media_id=media.id,
+                                season_number=1,
+                                episode_number=num,
+                                title=f"Episódio {num}",
+                                thumbnail_url=media.poster_url,
+                            )
+                            .on_conflict_do_update(
+                                index_elements=[
+                                    "media_id",
+                                    "season_number",
+                                    "episode_number",
+                                ],
+                                set_={
+                                    "title": f"Episódio {num}",
+                                    "thumbnail_url": media.poster_url,
+                                },
+                            )
+                        )
+                        db.execute(placeholder_stmt)
+
+                    print(
+                        f"[Sync] Placeholders criados: eps {missing_nums[0]}-{missing_nums[-1]}"
+                    )
 
         db.commit()
         _sync_done.add(key)

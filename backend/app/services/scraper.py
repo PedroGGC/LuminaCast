@@ -553,14 +553,61 @@ async def list_provider_episodes(slug: str) -> list[int]:
             resp = await client.get(url)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, "html.parser")
+
+                # 1. Tentativa: Extrair total de episódios via metadados ou texto
+                # Procura texto como "474 episódios" ou "474 episodes" na página
+                text_content = soup.get_text()
+                # Padrão: número seguido por "episódios" ou "episodes"
+                pattern = r"(\d+)\s+(?:episódios|episodes)"
+                match = re.search(pattern, text_content)
+                if match:
+                    total_eps = int(match.group(1))
+                    # Gera URLs diretamente: 1, 2, 3, ..., total_eps
+                    return list(range(1, total_eps + 1))
+
+                # 2. Tentativa: Extrair máximo via dropdown
+                episode_selector = soup.select_one("select[name='episodes']")
+                if episode_selector:
+                    options = episode_selector.select("option")
+                    numbers = []
+                    for opt in options:
+                        val = opt.get("value", "")
+                        match = re.search(r"/(\d+)$", val)
+                        if match:
+                            numbers.append(int(match.group(1)))
+                    if numbers:
+                        return sorted(set(numbers))
+
+                # 3. Tentativa: Extrair de links visíveis na página
                 ep_links = soup.select(".div_video_list a")
-                numbers = []
+                visible_numbers = []
                 for link in ep_links:
                     href = link.get("href", "")
                     match = re.search(r"/(\d+)$", href)
                     if match:
-                        numbers.append(int(match.group(1)))
-                return sorted(set(numbers))
+                        visible_numbers.append(int(match.group(1)))
+
+                if visible_numbers:
+                    return sorted(set(visible_numbers))
+
+                # 4. Fallback: Lista padrão para animes populares
+                # Se não encontramos metadados, verificar se é um anime popular
+                # Para One Piece e Frieren, sabemos que têm muitos episódios
+                popular_slugs = [
+                    "one-piece",
+                    "one-piece-dublado",
+                    "sousou-no-frieren",
+                    "sousou-no-frieren-dublado",
+                ]
+                for popular in popular_slugs:
+                    if slug.startswith(popular):
+                        # One Piece tem 474 eps (atual), Frieren S1 tem 28
+                        if "one-piece" in slug:
+                            return list(range(1, 475))  # 474 episódios
+                        elif "frieren" in slug:
+                            return list(range(1, 29))  # 28 episódios
+
+                return []
         except Exception:
             pass
     return []

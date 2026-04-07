@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import WatchHistory, Media, MediaEpisode
+from app.models import WatchHistory, Media, MediaEpisode, User
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["history"])
 
@@ -18,11 +19,9 @@ async def add_to_history(
     media_type: str,
     episode_number: int,
     db: Session = Depends(get_db),
-    current_user_id: int = 1,  # TODO: Pegar do token JWT
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    Adiciona/atualiza o histórico de visualização.
-    """
+    current_user_id = current_user.id
     now = datetime.now().isoformat()
 
     existing = (
@@ -77,11 +76,12 @@ async def add_to_history(
 @router.get("/history")
 async def get_history(
     db: Session = Depends(get_db),
-    current_user_id: int = 1,  # TODO: Pegar do token JWT
+    current_user: User = Depends(get_current_user),
 ):
     """
     Retorna o histórico de visualização (máx 20 itens).
     """
+    current_user_id = current_user.id
     entries = (
         db.query(WatchHistory)
         .filter(WatchHistory.user_id == current_user_id)
@@ -113,11 +113,12 @@ async def get_history(
 async def get_history_for_media(
     media_id: str,
     db: Session = Depends(get_db),
-    current_user_id: int = 1,  # TODO: Pegar do token JWT
+    current_user: User = Depends(get_current_user),
 ):
     """
     Retorna os episódios assistidos de uma mídia específica.
     """
+    current_user_id = current_user.id
     entry = (
         db.query(WatchHistory)
         .filter(

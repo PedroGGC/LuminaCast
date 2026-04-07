@@ -60,11 +60,11 @@ async def search_tmdb_by_title(
     cleaned_title, season_number = extract_season_and_clean_title(title)
 
     search_titles = []
-    if title_english and title_english != title and title_english != cleaned_title:
-        search_titles.append(title_english)
     search_titles.append(title)
     if cleaned_title != title:
         search_titles.append(cleaned_title)
+    if title_english and title_english != title and title_english != cleaned_title:
+        search_titles.append(title_english)
 
     client = get_http_client()
     for search_query in search_titles:

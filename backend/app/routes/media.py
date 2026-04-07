@@ -29,12 +29,30 @@ DUMMY_VIDEO_URL = (
 
 @router.get("/media/animes", response_model=list[MediaOut])
 async def get_animes(db: Session = Depends(get_db)):
-    return db.query(Media).filter(Media.media_type == "anime").all()
+    from sqlalchemy import func
+
+    return (
+        db.query(Media)
+        .join(MediaEpisode, Media.id == MediaEpisode.media_id, isouter=True)
+        .filter(Media.media_type == "anime")
+        .group_by(Media.id)
+        .having(func.count(MediaEpisode.id) > 0)
+        .all()
+    )
 
 
 @router.get("/media/desenhos", response_model=list[MediaOut])
 async def get_desenhos(db: Session = Depends(get_db)):
-    return db.query(Media).filter(Media.media_type == "desenho").all()
+    from sqlalchemy import func
+
+    return (
+        db.query(Media)
+        .join(MediaEpisode, Media.id == MediaEpisode.media_id, isouter=True)
+        .filter(Media.media_type == "desenho")
+        .group_by(Media.id)
+        .having(func.count(MediaEpisode.id) > 0)
+        .all()
+    )
 
 
 @router.get("/media/{media_id}")
@@ -54,8 +72,11 @@ async def get_media_detail(
         media_id = media_id.replace("tmdb_", "")
 
     # ─── 2. BUSCA NO BANCO DE DADOS ───
+    # Se veio com prefixo mal_ ou tmdb_, sempre busca por external_id
     media = None
-    if media_id.isdigit():
+    if media_type in ("anime", "desenho"):
+        media = db.query(Media).filter(Media.external_id == media_id).first()
+    elif media_id.isdigit():
         media = (
             db.query(Media)
             .filter((Media.id == int(media_id)) | (Media.external_id == media_id))
@@ -119,12 +140,17 @@ async def check_media_source(
         raise HTTPException(status_code=400, detail="Invalid Media ID")
 
     if media_id.startswith("mal_"):
+        media_type = "anime"
         media_id = media_id.replace("mal_", "")
     elif media_id.startswith("tmdb_"):
+        media_type = "desenho"
         media_id = media_id.replace("tmdb_", "")
 
+    # Se veio com prefixo mal_ ou tmdb_, sempre busca por external_id
     media = None
-    if media_id.isdigit():
+    if media_type in ("anime", "desenho"):
+        media = db.query(Media).filter(Media.external_id == media_id).first()
+    elif media_id.isdigit():
         media = (
             db.query(Media)
             .filter((Media.id == int(media_id)) | (Media.external_id == media_id))
@@ -200,8 +226,11 @@ async def get_media_full(
         media_type = "desenho"
         media_id = media_id.replace("tmdb_", "")
 
+    # Se veio com prefixo mal_ ou tmdb_, sempre busca por external_id
     media = None
-    if media_id.isdigit():
+    if media_type in ("anime", "desenho"):
+        media = db.query(Media).filter(Media.external_id == media_id).first()
+    elif media_id.isdigit():
         media = (
             db.query(Media)
             .filter((Media.id == int(media_id)) | (Media.external_id == media_id))
@@ -308,8 +337,11 @@ async def get_media_episodes(
         media_type = "desenho"
         media_id = media_id.replace("tmdb_", "")
 
+    # Se veio com prefixo mal_ ou tmdb_, sempre busca por external_id
     media = None
-    if media_id.isdigit():
+    if media_type in ("anime", "desenho"):
+        media = db.query(Media).filter(Media.external_id == media_id).first()
+    elif media_id.isdigit():
         media = (
             db.query(Media)
             .filter((Media.id == int(media_id)) | (Media.external_id == media_id))
@@ -364,6 +396,12 @@ async def stream_episode(episode_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Mídia não encontrada")
 
     external_id = media.external_id
+    # Prefixa o external_id para o frontend navegar corretamente
+    if media.media_type == "anime":
+        prefixed_id = f"mal_{external_id}"
+    else:
+        prefixed_id = f"tmdb_{external_id}"
+
     # 2. Busca do Próximo Episódio (Mesma Temporada)
     next_ep_info = None
     next_ep = (
@@ -402,7 +440,7 @@ async def stream_episode(episode_id: int, db: Session = Depends(get_db)):
             return {
                 "stream_url": stream_url,
                 "embed_urls": [],
-                "media_id": external_id,
+                "media_id": prefixed_id,
                 "title": media.title,
                 "season_number": episode.season_number,
                 "episode_number": episode.episode_number,
@@ -426,7 +464,7 @@ async def stream_episode(episode_id: int, db: Session = Depends(get_db)):
             return {
                 "stream_url": "",
                 "embed_urls": embed_urls,
-                "media_id": external_id,
+                "media_id": prefixed_id,
                 "title": media.title,
                 "season_number": episode.season_number,
                 "episode_number": episode.episode_number,
@@ -440,7 +478,7 @@ async def stream_episode(episode_id: int, db: Session = Depends(get_db)):
         return {
             "stream_url": "",
             "embed_urls": [],
-            "media_id": external_id,
+            "media_id": prefixed_id,
             "media_type": media.media_type,
             "next_episode": next_ep_info,
         }

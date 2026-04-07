@@ -7,7 +7,8 @@ import { api } from "../lib/api";
 interface StreamData {
   stream_url: string;
   embed_urls: string[];
-  media_id: number;
+  media_id: string;
+  media_type?: string;
   title: string | null;
   season_number: number;
   episode_number: number;

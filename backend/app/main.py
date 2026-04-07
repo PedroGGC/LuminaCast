@@ -16,7 +16,7 @@ from app.routes.user_list import router as user_list_router
 from app.routes.media import router as media_router
 from app.routes.sync import router as sync_router
 from app.routes.home import router as home_router
-from app.seed import seed_database, auto_seed_database
+from app.seed import seed_database, auto_seed_database, get_latest_release_tag
 from app.routes.history import router as history_router
 
 
@@ -25,6 +25,28 @@ async def lifespan(app: FastAPI):
     # create tables & seed
     Base.metadata.create_all(bind=engine)
     init_db()
+
+    # Verifica se o banco offline está atualizado
+    try:
+        from pathlib import Path
+
+        version_file = Path("data/.offline-db-version")
+        current_version = (
+            version_file.read_text().strip() if version_file.exists() else None
+        )
+        latest_version = get_latest_release_tag()
+
+        if latest_version and current_version != latest_version:
+            print(f"\n{'=' * 60}")
+            print(f"  Banco offline desatualizado!")
+            print(f"  Versão atual: {current_version or 'nenhuma'}")
+            print(f"  Versão disponível: {latest_version}")
+            print(f"\n  Para atualizar, rode:")
+            print(f"  cd backend && .\\venv\\Scripts\\python.exe app/seed.py")
+            print(f"{'=' * 60}\n")
+    except Exception:
+        pass
+
     seed_database()
 
     # Auto-seed em background (se banco vazio)

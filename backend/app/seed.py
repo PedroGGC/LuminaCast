@@ -9,28 +9,28 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.database import SessionLocal, engine
 from app.models import Base, Category, Media, AnimeMapping
 
-# Lista VIP de títulos para auto-seed
+# Lista VIP de títulos para auto-seed (título, MAL ID)
 AUTO_SEED_ANIMES = [
-    "Frieren",
-    "Bleach",
-    "One Piece",
-    "Gachiakuta",
-    "Sakamoto Days",
-    "Spy x Family",
-    "Jujutsu Kaisen",
-    "Demon Slayer",
-    "Naruto Shippuden",
-    "Attack on Titan",
-    "Hunter x Hunter",
-    "Death Note",
-    "Boku no Hero Academia",
-    "Fullmetal Alchemist: Brotherhood",
-    "One Punch Man",
-    "Chainsaw Man",
-    "Tokyo Ghoul",
-    "Black Clover",
-    "Sword Art Online",
-    "Haikyuu!!",
+    ("Frieren", 52991), 
+    ("Bleach", 269),  
+    ("One Piece", 21),  
+    ("Gachiakuta", 59062),
+    ("Sakamoto Days", 58939),
+    ("Spy x Family", 50265),
+    ("Jujutsu Kaisen", 40748),
+    ("Demon Slayer", 38000),
+    ("Naruto Shippuden", 1735),
+    ("Attack on Titan", 16498),
+    ("Hunter x Hunter", 11061),
+    ("Death Note", 1535),
+    ("Boku no Hero Academia", 31964),
+    ("Fullmetal Alchemist: Brotherhood", 5114),
+    ("One Punch Man", 30276),
+    ("Chainsaw Man", 44511),
+    ("Tokyo Ghoul", 22319),
+    ("Black Clover", 34572),
+    ("Sword Art Online", 11757),
+    ("Haikyuu!!", 20583),
 ]
 
 AUTO_SEED_DRAWINGS = [
@@ -61,38 +61,62 @@ AUTO_SEED_DRAWINGS = [
 # Usado pelo scraper para resolver slugs automaticamente.
 # Os mapeamentos manuais abaixo têm PRIORIDADE sobre o scoring automático.
 # ─────────────────────────────────────────────
-OFFLINE_DB_URL = (
-    "https://raw.githubusercontent.com/manami-project/"
-    "anime-offline-database/refs/tags/2026-12/"
-    "anime-offline-database-minified.json"
-)
 OFFLINE_DB_PATH = Path("data/anime-offline-database.json")
+OFFLINE_DB_VERSION_FILE = Path("data/.offline-db-version")
+
+
+def get_latest_release_tag() -> str | None:
+    """Obtém a tag da última release do anime-offline-database."""
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                "https://api.github.com/repos/manami-project/"
+                "anime-offline-database/releases/latest"
+            )
+            if resp.status_code == 200:
+                return resp.json().get("tag_name")
+    except Exception as e:
+        print(f"✗ Erro ao buscar última release: {e}")
+    return None
 
 
 def download_offline_db():
     """
-    Baixa o banco offline do Manami Project se ainda não existir.
+    Baixa o banco offline do Manami Project se necessário.
+    Verifica a última release no GitHub e re-baixa se houver versão mais nova.
     O scraper usa esse arquivo para obter títulos, sinônimos e tipo (TV/Movie/OVA)
     de cada anime a partir do MAL ID, sem depender de API externa.
     """
     OFFLINE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    if OFFLINE_DB_PATH.exists():
+    current_version = None
+    if OFFLINE_DB_VERSION_FILE.exists():
+        current_version = OFFLINE_DB_VERSION_FILE.read_text().strip()
+
+    latest_version = get_latest_release_tag()
+    if not latest_version:
+        latest_version = current_version or "2026-12"
+
+    if OFFLINE_DB_PATH.exists() and current_version == latest_version:
         size_mb = OFFLINE_DB_PATH.stat().st_size / 1024 / 1024
-        print(f"✓ Banco offline já existe ({size_mb:.1f} MB) — pulando download.")
+        print(f"✓ Banco offline atualizado ({latest_version}, {size_mb:.1f} MB)")
         return
 
-    print(f"↓ Baixando anime-offline-database (~30 MB)...")
+    print(f"↓ Baixando anime-offline-database {latest_version} (~60 MB)...")
+
+    url = (
+        f"https://github.com/manami-project/anime-offline-database/"
+        f"releases/download/{latest_version}/anime-offline-database-minified.json"
+    )
     try:
-        with httpx.stream(
-            "GET", OFFLINE_DB_URL, timeout=120, follow_redirects=True
-        ) as r:
+        with httpx.stream("GET", url, timeout=120, follow_redirects=True) as r:
             r.raise_for_status()
             with open(OFFLINE_DB_PATH, "wb") as f:
                 for chunk in r.iter_bytes(chunk_size=8192):
                     f.write(chunk)
+        OFFLINE_DB_VERSION_FILE.write_text(latest_version)
         size_mb = OFFLINE_DB_PATH.stat().st_size / 1024 / 1024
-        print(f"✓ Banco offline salvo em {OFFLINE_DB_PATH} ({size_mb:.1f} MB)")
+        print(f"✓ Banco offline salvo ({latest_version}, {size_mb:.1f} MB)")
     except Exception as e:
         print(f"✗ Falha ao baixar banco offline: {e}")
         print("  O scraper vai operar sem o banco offline até o próximo seed.")
@@ -138,15 +162,15 @@ def seed_database():
                 mapping = AnimeMapping(**m_data)
                 db.add(mapping)
                 print(
-                    f"  ✓ Mapping: MAL {m_data['mal_id']} → {m_data['animefire_slug']}"
+                    f"  [OK] Mapping: MAL {m_data['mal_id']} → {m_data['animefire_slug']}"
                 )
 
         db.commit()
-        print("✓ Seed concluído.")
+        print("[OK] Seed concluído.")
 
     except Exception as e:
         db.rollback()
-        print(f"✗ Erro no seed: {e}")
+        print(f"[ERRO] Erro no seed: {e}")
     finally:
         db.close()
 
@@ -176,23 +200,6 @@ async def auto_seed_database():
             return
 
         print("[Auto-Seed] Iniciando population...")
-
-        # Mapeia títulos para MAL ID via busca no Jikan
-        async def get_mal_id(title: str) -> int | None:
-            try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    resp = await client.get(
-                        "https://api.jikan.moe/v4/anime",
-                        params={"q": title, "limit": 1},
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        items = data.get("data", [])
-                        if items:
-                            return items[0].get("mal_id")
-            except Exception as e:
-                print(f"[Auto-Seed] Erro ao buscar MAL ID para '{title}': {e}")
-            return None
 
         # Mapeia títulos para TMDB ID via busca no TMDB
         async def get_tmdb_id(title: str) -> int | None:
@@ -225,17 +232,13 @@ async def auto_seed_database():
 
         # ── Seed Animes ─────────────────────────────
         print("[Auto-Seed] Populando Animes...")
-        for title in AUTO_SEED_ANIMES:
-            mal_id = await get_mal_id(title)
-            if mal_id:
-                print(f"  → Sync: {title} (MAL {mal_id})")
-                try:
-                    await sync_anime_by_mal_id(mal_id, db)
-                except Exception as e:
-                    print(f"  ✗ Erro no sync de {title}: {e}")
-                await asyncio.sleep(2)  # Rate limit protection
-            else:
-                print(f"  ✗ MAL ID não encontrado para: {title}")
+        for title, mal_id in AUTO_SEED_ANIMES:
+            print(f"  → Sync: {title} (MAL {mal_id})")
+            try:
+                await sync_anime_by_mal_id(mal_id, db)
+            except Exception as e:
+                print(f"  ✗ Erro no sync de {title}: {e}")
+            await asyncio.sleep(2)  # Rate limit protection
 
         # ── Seed Desenhos ────────────────────────────
         print("[Auto-Seed] Populando Desenhos...")
