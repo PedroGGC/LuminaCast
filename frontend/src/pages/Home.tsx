@@ -43,7 +43,7 @@ export default function Home() {
 
     const fetchDatas = async () => {
       try {
-        // Busca histórico em paralelo
+        // Busca histórico em paralelo (não bloqueia)
         const historyPromise = api.get("/api/history").catch(() => ({ data: [] }));
         
         // Consome a API /api/home com carrosséis dinâmicos
@@ -117,7 +117,7 @@ export default function Home() {
     );
   }
 
-  // Converte os dados da API home para o formato esperado pelo AnimeCarousel
+  // Converte os dados da API /home para o formato esperado pelo AnimeCarousel
   const categories = carousels.map((carousel) => ({
     id: carousel.title,
     name: carousel.title,

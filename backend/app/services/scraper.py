@@ -10,8 +10,19 @@ Responsabilidades:
 
 import re
 import httpx
+import logging
 from bs4 import BeautifulSoup
 from difflib import SequenceMatcher
+
+logger = logging.getLogger("scraper")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    ch = logging.StreamHandler()
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 from app.utils import slugify
 from app.services.anime_offline_db import (
     get_anime_by_mal_id,
@@ -35,7 +46,7 @@ _RE_SLUG_CLEAN = re.compile(
 )
 _RE_SEASON_NUMS = re.compile(r"\d+")
 
-# Blogger extraction patterns
+# Padrões de extração do Blogger
 _RE_BLOGGER_RAW = re.compile(
     r"(https?[^\s\"'<>]*?(?:googlevideo\.com|blogger\.com|video\.google\.com)"
     r"[^\s\"'<>]*?videoplayback[^\s\"'<>]*?)"
@@ -153,9 +164,30 @@ def _pick_best_slug(
     mal_id: int | None = None,
     prefer_dubbed: bool = True,
     min_score: float = 0.2,
+    season_hint: int = None,
 ) -> str | None:
     if not candidates:
         return None
+
+    if season_hint:
+        filtered = []
+        for c in candidates:
+            if _is_valid_season(c, season_hint):
+                filtered.append(c)
+        candidates = filtered
+        if not candidates:
+            return None
+
+    if mal_title:
+        target_title = mal_title
+        filtered = []
+        for c in candidates:
+            if _reject_spinoffs(c, target_title):
+                continue
+            filtered.append(c)
+        candidates = filtered
+        if not candidates:
+            return None
 
     scored = [
         (url, _score_slug_candidate(url, mal_title, mal_id)) for url in candidates
@@ -214,6 +246,30 @@ def _is_valid_season(title: str, season: int) -> bool:
         return str(season) in nums
 
 
+def _reject_spinoffs(title: str, target_title: str) -> bool:
+    """Heurística para evitar resolver spin-offs.
+
+    Ex: "Boku no Hero Academia" deve rejeitar "Vigilantes".
+    """
+    t = title.lower()
+    target = (target_title or "").lower()
+
+    spinoff_markers = [
+        "vigilantes",
+        "vigilante",
+        "spin-off",
+        "spin off",
+        "prequel",
+        "sequel",
+        "side story",
+    ]
+    if any(m in t for m in spinoff_markers) and not any(
+        m in target for m in spinoff_markers
+    ):
+        return True
+    return False
+
+
 def _extract_best_quality(data_list) -> str | None:
     if not isinstance(data_list, list) or not data_list:
         return None
@@ -247,7 +303,7 @@ async def extract_from_blogger(url: str, client) -> str:
         return url
 
     except Exception as e:
-        print(f"[Scraper] Erro na extração do Blogger: {e}")
+        logger.error(f"Erro na extração do Blogger: {e}", exc_info=True)
         return url
 
 
@@ -259,7 +315,7 @@ def extract_best_video_url(html_content: str) -> str | None:
     import urllib.parse
     import re
 
-    # Limpeza rápida e dupla decodificação
+    # Limpeza rápida e dupla decodificação (URL encoded)
     text = (
         html_content.replace("\\/", "/")
         .replace("\\u0026", "&")
@@ -268,7 +324,7 @@ def extract_best_video_url(html_content: str) -> str | None:
     )
     text = urllib.parse.unquote(urllib.parse.unquote(text))
 
-    # Busca o videoplayback
+    # Busca o parâmetro videoplayback na URL
     urls = re.findall(
         r'(https://[^\s"\'<>\[\]\\]*?videoplayback[^\s"\'<>\[\]\\]*)', text
     )
@@ -291,7 +347,7 @@ def extract_best_video_url(html_content: str) -> str | None:
 
     for url in valid_urls:
         if "itag=37" in url:
-            return url  # 1080p cravado
+            return url  # 1080pfixo (itag=37)
         elif "itag=22" in url:
             if highest_score < 2:
                 best_url, highest_score = url, 2
@@ -350,18 +406,24 @@ async def search_provider_with_fallback(
     return candidates
 
 
-async def resolve_provider_slug(mal_id: int) -> str | None:
+async def resolve_provider_slug(
+    mal_id: int, target_title: str = None, season_hint: int = None
+) -> str | None:
     """Resolve o slug do provider para um MAL ID usando busca em cascata."""
     entry = get_anime_by_mal_id(mal_id)
     if not entry:
         return None
 
-    main_title = entry["title"]
+    main_title = target_title or entry["title"]
     title_english = entry.get("title_english")
 
     cache_key = str(mal_id)
     if cache_key in SLUG_CACHE:
-        return SLUG_CACHE[cache_key]
+        cached = SLUG_CACHE[cache_key]
+        if season_hint and not _is_valid_season(cached, season_hint):
+            del SLUG_CACHE[cache_key]
+        else:
+            return cached
 
     def generate_provider_slug(title: str) -> str:
         clean = title.lower()
@@ -385,12 +447,16 @@ async def resolve_provider_slug(mal_id: int) -> str | None:
                     guess_resp.status_code == 200
                     and "Página não encontrada" not in guess_resp.text
                 ):
+                    if season_hint and not _is_valid_season(
+                        str(guess_resp.url), season_hint
+                    ):
+                        continue
                     if "animefire" in str(guess_resp.url):
                         final_url = str(guess_resp.url)
                         SLUG_CACHE[cache_key] = final_url
                         set_cached_slug(mal_id, final_url.split("/")[-1])
                         return final_url
-            except Exception:
+            except Exception as e:
                 pass
 
     clean_original = _sanitize_title(main_title)
@@ -434,7 +500,11 @@ async def resolve_provider_slug(mal_id: int) -> str | None:
         return None
 
     best = _pick_best_slug(
-        all_candidates, main_title, mal_id=mal_id, prefer_dubbed=True
+        all_candidates,
+        main_title,
+        mal_id=mal_id,
+        prefer_dubbed=True,
+        season_hint=season_hint,
     )
 
     if best and "animefire" in best:
@@ -475,7 +545,11 @@ async def _scrape_provider(
                     candidatos = [{"url": f"/animes/{mapping.animefire_slug}"}]
 
             if not candidatos:
-                final_url = await resolve_provider_slug(mal_id) if mal_id else None
+                final_url = (
+                    await resolve_provider_slug(mal_id, season_hint=season)
+                    if mal_id
+                    else None
+                )
                 if not final_url:
                     return HLS_FALLBACK_URL
                 candidatos = [{"url": final_url}]
@@ -541,7 +615,7 @@ async def _scrape_provider(
             return HLS_FALLBACK_URL
 
     except Exception as e:
-        print(f"[Scraper] Erro crítico: {e}")
+        logger.error(f"Erro crítico no _scrape_provider: {e}", exc_info=True)
         return HLS_FALLBACK_URL
 
 
@@ -555,8 +629,7 @@ async def list_provider_episodes(slug: str) -> list[int]:
                 soup = BeautifulSoup(resp.text, "html.parser")
 
                 # 1. Tentativa: Extrair total de episódios via metadados ou texto
-                # Procura texto como "474 episódios" ou "474 episodes" na página
-                text_content = soup.get_text()
+                # Procura texto como "474 episodios" ou "474 episodes" na página
                 # Padrão: número seguido por "episódios" ou "episodes"
                 pattern = r"(\d+)\s+(?:episódios|episodes)"
                 match = re.search(pattern, text_content)
