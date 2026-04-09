@@ -263,7 +263,7 @@ export default function AnimeDetail() {
   }
 
   return (
-    <main className="pb-24">
+    <main className="pt-16 pb-24">
       <section className="relative w-full h-[60vh] min-h-[400px]">
         <img
           src={anime.poster_url || anime.banner_image || anime.cover_image || ""}

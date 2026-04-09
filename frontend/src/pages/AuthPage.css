@@ -20,6 +20,10 @@
 .auth-container span {
   font-size: 12px;
   color: #a3a3a3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
 }
 
 .auth-container a {
@@ -146,6 +150,7 @@
 .social-icons {
   margin: 20px 0;
   display: flex;
+  justify-content: center;
 }
 
 .social-icons a {

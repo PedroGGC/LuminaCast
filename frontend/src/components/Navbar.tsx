@@ -10,7 +10,6 @@ export default function Navbar() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
 
-  // Estado da busca
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Anime[]>([]);
@@ -18,11 +17,9 @@ export default function Navbar() {
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  // Estado do dropdown de perfil
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
-  // Estado do dropdown de notificações
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationsRef = useRef<HTMLDivElement>(null);
 
@@ -32,7 +29,6 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Fecha a busca ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
@@ -43,7 +39,6 @@ export default function Navbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Fecha dropdowns ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
@@ -57,7 +52,6 @@ export default function Navbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Busca com debounce (500ms)
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length < 2) {
       setSearchResults([]);
@@ -114,6 +108,7 @@ export default function Navbar() {
           : "bg-gradient-to-b from-black/80 to-transparent"
       }`}
     >
+      {/* ─── Left: Logo + Links ─── */}
       <div className="flex items-center gap-8">
         <Link
           to="/home"
@@ -129,16 +124,18 @@ export default function Navbar() {
         </div>
       </div>
 
-      <div className="flex items-center gap-5 text-lunima-light-gray relative">
+      {/* ─── Right: Icons ─── */}
+      <div className="flex items-center gap-4 text-lunima-light-gray relative">
+
         {/* ─── Search ─── */}
-        <div ref={searchRef} className="flex items-center relative gap-2">
+        <div ref={searchRef} className="flex items-center relative gap-0.5">
           {!isSearchOpen && (
             <button
               onClick={toggleSearch}
-              className="text-lunima-light-gray hover:text-white transition group focus:outline-none"
+              className="w-9 h-9 flex items-center justify-center text-lunima-light-gray hover:text-white transition focus:outline-none"
               aria-label="Pesquisar"
             >
-              <Search size={22} className="group-hover:scale-110 transition-transform" />
+              <Search size={20} />
             </button>
           )}
 
@@ -152,7 +149,7 @@ export default function Navbar() {
           >
             {isSearchOpen && (
               <>
-                <Search size={18} className="text-gray-400 mr-2 flex-shrink-0" />
+                <Search size={16} className="text-gray-400 mr-2 flex-shrink-0" />
                 <input
                   type="text"
                   placeholder="Títulos..."
@@ -164,9 +161,9 @@ export default function Navbar() {
                 <button
                   type="button"
                   onClick={toggleSearch}
-                  className="ml-2 text-gray-400 hover:text-white flex-shrink-0"
+                  className="ml-2 w-6 h-6 flex items-center justify-center text-gray-400 hover:text-white flex-shrink-0"
                 >
-                  <X size={16} />
+                  <X size={14} />
                 </button>
               </>
             )}
@@ -192,9 +189,9 @@ export default function Navbar() {
                       setSearchQuery("");
                       setIsSearchOpen(false);
                     }}
-                    className={`flex items-center gap-3 px-4 py-2 transition ${
-                      selectedId === anime.id 
-                        ? "bg-lunima-gold/20 cursor-wait" 
+                    className={`flex items-center gap-2.5 px3 px-4 py-2 transition ${
+                      selectedId === anime.id
+                        ? "bg-lunima-gold/20 cursor-wait"
                         : "hover:bg-gray-800"
                     }`}
                   >
@@ -206,11 +203,12 @@ export default function Navbar() {
                     <div className="flex flex-col">
                       <span className="text-white text-sm font-medium line-clamp-1">{anime.title}</span>
                       <span className="text-gray-400 text-xs">
-                        {anime.year} • {
-                          anime.media_type === "anime" ? "Anime" : 
-                          anime.media_type === "movie" || anime.media_type === "filme" ? "Filme" : 
-                          "Série"
-                        }
+                        {anime.year} •{" "}
+                        {anime.media_type === "anime"
+                          ? "Anime"
+                          : anime.media_type === "movie" || anime.media_type === "filme"
+                          ? "Filme"
+                          : "Série"}
                       </span>
                     </div>
                   </Link>
@@ -230,14 +228,14 @@ export default function Navbar() {
 
         {/* ─── Notifications ─── */}
         <div ref={notificationsRef} className="relative">
-          <button 
+          <button
             onClick={() => setNotificationsOpen((n) => !n)}
-            className="hover:text-white transition relative" 
+            className="w-9 h-9 flex items-center justify-center hover:text-white transition"
             aria-label="Notificações"
           >
             <Bell size={20} />
           </button>
-          
+
           {notificationsOpen && (
             <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl z-50 overflow-hidden animate-fade-in">
               <div className="px-4 py-4 text-center text-lunima-light-gray text-sm">
@@ -251,7 +249,7 @@ export default function Navbar() {
         <div ref={profileRef} className="relative">
           <button
             onClick={() => setProfileOpen((p) => !p)}
-            className="flex items-center gap-1.5 group focus:outline-none"
+            className="h-9 flex items-center gap-1.5 group focus:outline-none"
             aria-label="Perfil"
           >
             <div className="w-8 h-8 rounded bg-gradient-to-br from-lunima-gold to-yellow-600 flex items-center justify-center text-sm font-bold text-black select-none group-hover:ring-2 group-hover:ring-lunima-gold/50 transition">
@@ -265,7 +263,6 @@ export default function Navbar() {
 
           {profileOpen && (
             <div className="absolute right-0 top-full mt-2 w-44 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl z-50 overflow-hidden animate-fade-in">
-              {/* User info */}
               <div className="px-3 py-2.5 border-b border-zinc-700">
                 <p className="text-white text-sm font-semibold truncate">{user?.nome ?? "Usuário"}</p>
                 <p className="text-zinc-400 text-xs truncate">{user?.email}</p>
@@ -288,6 +285,7 @@ export default function Navbar() {
             </div>
           )}
         </div>
+
       </div>
     </nav>
   );
