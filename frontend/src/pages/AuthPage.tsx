@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import { Github, Linkedin, Mail } from 'lucide-react';
 import './AuthPage.css';
 
 export default function AuthPage() {
@@ -13,7 +12,7 @@ export default function AuthPage() {
   const isRegisterRoute = location.pathname === '/register';
   const [isActive, setIsActive] = useState(isRegisterRoute);
 
-  // Form states
+  // Estados do formulário
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [registerName, setRegisterName] = useState('');
@@ -118,18 +117,17 @@ export default function AuthPage() {
             <form onSubmit={handleRegister}>
                 <h1 className="text-white text-3xl font-bold">Criar Conta</h1>
                 <div className="social-icons">
-                    <a href="#" className="icon"><Github size={18} /></a>
-                    <a href="#" className="icon"><Mail size={18} /></a>
-                    <a href="#" className="icon"><Linkedin size={18} /></a>
+                    {/* Google OAuth - implementar no backend primeiro */}
+                    {/* <a href="/auth/google" className="icon"><img src="google-icon" /></a> */}
                 </div>
-                <span>ou use seu email para se registrar</span>
+                <span>use seu email para se registrar</span>
                 
-                {error && isActive && <div className="text-[#FFD700] text-sm my-2 text-left w-full">{error}</div>}
+                {error && isActive && <div className="text-[#ffd700] text-sm my-2 text-left w-full">{error}</div>}
 
                 <input type="text" placeholder="Nome" value={registerName} onChange={e => setRegisterName(e.target.value)} required />
                 <input type="email" placeholder="Email" value={registerEmail} onChange={e => setRegisterEmail(e.target.value)} required />
                 <input type="password" placeholder="Senha" value={registerPassword} onChange={e => setRegisterPassword(e.target.value)} required />
-                <button type="submit" className="auth-btn" disabled={loading}>{loading ? 'Aguarde...' : 'Sign Up'}</button>
+                <button type="submit" className="auth-btn" disabled={loading}>{loading ? 'Aguarde...' : 'Cadastrar'}</button>
             </form>
         </div>
 
@@ -137,9 +135,8 @@ export default function AuthPage() {
             <form onSubmit={handleLogin}>
                 <h1 className="text-white text-3xl font-bold">Entrar</h1>
                 <div className="social-icons">
-                    <a href="#" className="icon"><Github size={18} /></a>
-                    <a href="#" className="icon"><Mail size={18} /></a>
-                    <a href="#" className="icon"><Linkedin size={18} /></a>
+                    {/* Google OAuth - implementar no backend primeiro */}
+                    {/* <a href="/auth/google" className="icon"><img src="google-icon" /></a> */}
                 </div>
                 <span>ou use sua conta de email</span>
                 
@@ -148,7 +145,7 @@ export default function AuthPage() {
                 <input type="text" placeholder="E-mail ou Nome de Usuário" value={loginIdentifier} onChange={e => setLoginIdentifier(e.target.value)} required />
                 <input type="password" placeholder="Senha" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} required />
                 <a href="#">Esqueceu a senha?</a>
-                <button type="submit" className="auth-btn" disabled={loading}>{loading ? 'Aguarde...' : 'Sign In'}</button>
+                <button type="submit" className="auth-btn" disabled={loading}>{loading ? 'Aguarde...' : 'Entrar'}</button>
             </form>
         </div>
 
@@ -156,13 +153,13 @@ export default function AuthPage() {
             <div className="toggle">
                 <div className="toggle-panel toggle-left">
                     <h1 className="text-white text-3xl font-bold text-shadow">Bem-vindo de volta!</h1>
-                    <p className="text-shadow">Entre com seus dados para conectar-se conosco novamente.</p>
-                    <button type="button" className="auth-btn hidden-btn" onClick={() => handleToggle(false)}>Sign In</button>
+                    <p className="text-shadow">Acesse sua conta para continuar assistindo ao que você ama.</p>
+                    <button type="button" className="auth-btn hidden-btn" onClick={() => handleToggle(false)}>Entrar</button>
                 </div>
                 <div className="toggle-panel toggle-right">
-                    <h1 className="text-white text-3xl font-bold text-shadow">Olá, Amigo!</h1>
-                    <p className="text-shadow">Cadastre-se com seus dados para iniciar sua jornada.</p>
-                    <button type="button" className="auth-btn hidden-btn" onClick={() => handleToggle(true)}>Sign Up</button>
+                    <h1 className="text-white text-3xl font-bold text-shadow">Comece sua jornada!!</h1>
+                    <p className="text-shadow">Crie seu perfil e aproveite nossa plataforma para assistir seus conteudos favoritos.</p>
+                    <button type="button" className="auth-btn hidden-btn" onClick={() => handleToggle(true)}>Cadastrar</button>
                 </div>
             </div>
         </div>

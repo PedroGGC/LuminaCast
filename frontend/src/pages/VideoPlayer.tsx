@@ -29,7 +29,7 @@ export default function VideoPlayer() {
   const [error, setError] = useState<string | null>(null);
   const [selectedServerIndex, setSelectedServerIndex] = useState<number>(0);
   
-  // Custom Player States
+  // Estados customizados do Player
   const [isPlaying, setIsPlaying] = useState(true);
   const [progress, setProgress] = useState(0);
   const [bufferedProgress, setBufferedProgress] = useState(0);
@@ -37,12 +37,12 @@ export default function VideoPlayer() {
   const [durationText, setDurationText] = useState("00:00");
   const [showNextPopup, setShowNextPopup] = useState(false);
 
-  // ... (Keep existing refs and formatTime) ...
+  // ... (Mantém os refs existentes e formatTime) ...
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
-  // Helper: Format Time
+  // Helper: Formata o tempo
   const formatTime = (seconds: number) => {
     if (isNaN(seconds)) return "00:00";
     const mins = Math.floor(seconds / 60);
@@ -50,7 +50,7 @@ export default function VideoPlayer() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // ... (Fetch stream logic stays the same) ...
+  // ... (Lógica de fetch de stream permanece a mesma) ...
   useEffect(() => {
     if (!id) return;
     setLoading(true);
@@ -82,14 +82,14 @@ export default function VideoPlayer() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Handle server change for Western content
+  // Handler: mudança de servidor para conteúdo Western
   const handleServerChange = (url: string, index: number) => {
     setActiveUrl(url);
     setSelectedServerIndex(index);
     setIsPlaying(true);
   };
 
-  // Logic: Time Tracking, Next Episode Detection & Buffer
+  // Lógica: Controle de Tempo, Detecção do Próximo Episódio e Buffer
   const handleTimeUpdate = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -102,13 +102,13 @@ export default function VideoPlayer() {
       setCurrentTimeText(formatTime(current));
       setDurationText(formatTime(duration));
 
-      // Buffer Logic
+      // Lógica do Buffer
       const buffered = video.buffered;
       if (buffered.length > 0) {
         setBufferedProgress((buffered.end(buffered.length - 1) / duration) * 100);
       }
 
-      // Show popup at 90% of the video
+      // Mostra popup aos 90% do vídeo
       if (current / duration > 0.9) {
         setShowNextPopup(true);
       } else {
@@ -117,7 +117,7 @@ export default function VideoPlayer() {
     }
   };
 
-  // Logic: Play/Pause
+  // Lógica: Play/Pause
   const togglePlay = () => {
     if (videoRef.current) {
       if (isPlaying) {
@@ -129,7 +129,7 @@ export default function VideoPlayer() {
     }
   };
 
-  // Logic: Fullscreen
+  // Lógica: Tela Cheia
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
@@ -141,7 +141,7 @@ export default function VideoPlayer() {
     }
   };
 
-  // Seek Progress
+  // Handler: Seek (Progress Bar)
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoRef.current;
     if (!video) return;
@@ -218,7 +218,7 @@ export default function VideoPlayer() {
 
   const isEmbed = !activeUrl.includes(".mp4") && !activeUrl.includes(".m3u8");
 
-  // === INÍCIO DO DEBUG ===
+  // === INÍCIO DO DEBUG (Logs de Desenvolvimento) ===
   console.log("=== DEBUG DO PLAYER ===");
   console.log("1. Objeto Stream Completo:", stream);
   console.log("2. URL Ativa (activeUrl):", activeUrl);
