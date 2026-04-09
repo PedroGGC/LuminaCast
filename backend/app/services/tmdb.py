@@ -54,10 +54,12 @@ async def search_tmdb_by_title(
     Busca anime no TMDB pelo título com múltiplas tentativas.
     Retorna dados enriquecidos em pt-BR ou None se não encontrar.
     """
+    # Debug logs removed for production
     if not TMDB_API_KEY or not title:
         return None
 
     cleaned_title, season_number = extract_season_and_clean_title(title)
+    # Debug logs removed for production
 
     search_titles = []
     search_titles.append(title)
@@ -66,9 +68,12 @@ async def search_tmdb_by_title(
     if title_english and title_english != title and title_english != cleaned_title:
         search_titles.append(title_english)
 
+    # Debug logs removed for production
+
     client = get_http_client()
     for search_query in search_titles:
         try:
+            # Debug logs removed for production
             response = await client.get(
                 f"{TMDB_BASE_URL}/search/tv",
                 params={
@@ -85,6 +90,8 @@ async def search_tmdb_by_title(
             if not results:
                 continue
 
+            # Debug logs removed for production
+
             best_match = None
             for item in results:
                 genres = item.get("genre_ids", [])
@@ -99,10 +106,7 @@ async def search_tmdb_by_title(
             if not tmdb_id:
                 continue
 
-            print(
-                f"[TMDB] Encontrado: '{best_match.get('name')}' (TMDB ID: {tmdb_id}) "
-                f"para '{title}' (Season: {season_number}, Year: {year or 'N/A'})"
-            )
+            # Debug logs removed for production
 
             final_season_number = season_number
             if year:
@@ -119,12 +123,13 @@ async def search_tmdb_by_title(
                                 s_year = int(air_date.split("-")[0])
                                 if abs(s_year - year) <= 1:
                                     final_season_number = s_num
-                                    print(
-                                        f"[TMDB] Temporada {s_num} escolhida via Air Date ({s_year} ~= {year})"
-                                    )
+
+                                    # Debug logs removed for production
                                     break
                             except (ValueError, IndexError):
                                 pass
+
+            # Debug logs removed for production
 
             # Busca dados da temporada e da série em paralelo
             season_resp, series_resp = await asyncio.gather(
@@ -141,7 +146,7 @@ async def search_tmdb_by_title(
             season_data = season_resp.json() if season_resp.status_code == 200 else None
             series_data = series_resp.json() if series_resp.status_code == 200 else {}
 
-            return {
+            result = {
                 "tmdb_id": tmdb_id,
                 "season_number": final_season_number,
                 "title": series_data.get("name") or best_match.get("name"),
@@ -165,11 +170,12 @@ async def search_tmdb_by_title(
                 "season_data": season_data,
             }
 
-        except Exception as e:
-            print(f"[TMDB] Erro ao buscar '{search_query}': {e}")
+            # Debug logs removed for production
+            return result
+
+        except Exception:
             continue
 
-    print(f"[TMDB] Nenhum resultado encontrado para: {title}")
     return None
 
 
