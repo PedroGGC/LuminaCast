@@ -137,12 +137,7 @@ export default function AuthPage() {
                       className="icon"
                       aria-label="Entrar com Google"
                     >
-                      <svg viewBox="0 0 48 48" width="20" height="20">
-                        <path fill="#4285F4" d="M45.12 24.5c0-2.6-.2-5.1-.7-7.5H24v9.2h11.5c-.5 2.7-2 5-4.2 6.5v5.4h6.8c4-3.7 6.8-9.2 6.8-15.6z"/>
-                        <path fill="#34A853" d="M24 46c5.4 0 9.9-1.8 13.2-4.8l-6.8-5.4c-1.8 1.2-4.1 1.9-6.4 1.9-4.9 0-9.1-3.3-10.6-7.8H1.2v5.6C4.6 41.3 13.8 46 24 46z"/>
-                        <path fill="#FBBC05" d="M13.4 28c1.3-1.9 2-4.2 2-6.5s-.7-4.6-2-6.5v-5.6H1.2C-.5 17.5 0 21.3 0 24s.5 6.5 1.2 9.4l6.2-5.4z"/>
-                        <path fill="#EA4335" d="M24 10.2c2.7 0 5.1.9 7 2.6l5.8-5.6C33.1 3 29.4 1.5 24 1.5 13.8 1.5 4.6 6 1.2 14l6.2 5.6c1.5-4.5 5.7-7.9 10.6-7.9z"/>
-                      </svg>
+                      <img src="/google.svg" alt="Google" className="w-5 h-5" />
                     </button>
                 </div>
                 <span>use seu email para se registrar</span>
@@ -166,12 +161,7 @@ export default function AuthPage() {
                       className="icon"
                       aria-label="Entrar com Google"
                     >
-                      <svg viewBox="0 0 48 48" width="20" height="20">
-                        <path fill="#4285F4" d="M45.12 24.5c0-2.6-.2-5.1-.7-7.5H24v9.2h11.5c-.5 2.7-2 5-4.2 6.5v5.4h6.8c4-3.7 6.8-9.2 6.8-15.6z"/>
-                        <path fill="#34A853" d="M24 46c5.4 0 9.9-1.8 13.2-4.8l-6.8-5.4c-1.8 1.2-4.1 1.9-6.4 1.9-4.9 0-9.1-3.3-10.6-7.8H1.2v5.6C4.6 41.3 13.8 46 24 46z"/>
-                        <path fill="#FBBC05" d="M13.4 28c1.3-1.9 2-4.2 2-6.5s-.7-4.6-2-6.5v-5.6H1.2C-.5 17.5 0 21.3 0 24s.5 6.5 1.2 9.4l6.2-5.4z"/>
-                        <path fill="#EA4335" d="M24 10.2c2.7 0 5.1.9 7 2.6l5.8-5.6C33.1 3 29.4 1.5 24 1.5 13.8 1.5 4.6 6 1.2 14l6.2 5.6c1.5-4.5 5.7-7.9 10.6-7.9z"/>
-                      </svg>
+                      <img src="/google.svg" alt="Google" className="w-5 h-5" />
                     </button>
                 </div>
                 <span>ou use sua conta de email</span>
