@@ -116,3 +116,47 @@ export async function fetchEpisode(id: number): Promise<Episode> {
   const res = await api.get<Episode>(`/api/episode/${id}`);
   return res.data;
 }
+
+export async function downloadWithProgress(
+  url: string, 
+  filename: string, 
+  onProgress: (progress: number) => void
+) {
+  const token = useAuthStore.getState().token;
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  
+  const response = await fetch(url, { 
+    credentials: "include",
+    headers 
+  });
+  if (!response.ok) throw new Error("Download failed");
+  
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No reader");
+  
+  const headerContentLength = response.headers.get("Content-Length");
+  const contentLength = headerContentLength ? +headerContentLength : 0;
+  let receivedLength = 0;
+  const chunks: any[] = [];
+  
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    receivedLength += value.length;
+    if (contentLength > 0) {
+      onProgress(Math.round((receivedLength / contentLength) * 100));
+    }
+  }
+  
+  const blob = new Blob(chunks as BlobPart[]);
+  const blobUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.setAttribute("download", filename);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(blobUrl);
+}
