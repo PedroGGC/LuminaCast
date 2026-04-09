@@ -14,7 +14,7 @@ function App() {
   return (
     <div className="min-h-screen bg-lunima-black">
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/login" element={<AuthPage />} />
         <Route path="/register" element={<AuthPage />} />
         
