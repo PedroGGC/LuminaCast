@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.103.0",
     "axios": "^1.6.8",
     "hls.js": "^1.6.15",
     "jwt-decode": "^4.0.0",

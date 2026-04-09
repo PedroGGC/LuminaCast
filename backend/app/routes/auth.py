@@ -14,6 +14,8 @@ from app.auth import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+from app.supabase_auth import get_current_user_supabase
+
 
 @router.post("/register", response_model=UserOut)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
@@ -107,3 +109,12 @@ def update_me(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+@router.get("/me-supabase")
+async def get_me_supabase(user_data: dict = Depends(get_current_user_supabase)):
+    """
+    Retorna dados do usuário logado via Supabase JWT.
+    Não gera token próprio - retorna apenas os dados do token validado.
+    """
+    return {"email": user_data["email"], "user_id": user_data["user_id"]}

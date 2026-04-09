@@ -3,6 +3,7 @@ import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import AnimeDetail from "./pages/AnimeDetail";
 import AuthPage from "./pages/AuthPage";
+import OAuthCallback from "./pages/OAuthCallback";
 import ProtectedRoute from "./components/ProtectedRoute";
 import MyList from "./pages/MyList";
 import Search from "./pages/Search";
@@ -17,6 +18,7 @@ function App() {
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/login" element={<AuthPage />} />
         <Route path="/register" element={<AuthPage />} />
+        <Route path="/auth/oauth/google/callback" element={<OAuthCallback />} />
         
         <Route element={<ProtectedRoute />}>
           <Route path="/home" element={<><Navbar /><Home /></>} />
