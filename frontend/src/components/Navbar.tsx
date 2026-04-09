@@ -10,17 +10,21 @@ export default function Navbar() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
 
-  // Search state
+  // Estado da busca
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Anime[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  // Profile dropdown state
+  // Estado do dropdown de perfil
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Estado do dropdown de notificações
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notificationsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 50);
@@ -28,7 +32,7 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Close search on outside click
+  // Fecha a busca ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
@@ -39,18 +43,21 @@ export default function Navbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Close profile dropdown on outside click
+  // Fecha dropdowns ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
         setProfileOpen(false);
+      }
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
+        setNotificationsOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Debounced search
+  // Busca com debounce (500ms)
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length < 2) {
       setSearchResults([]);
@@ -222,10 +229,23 @@ export default function Navbar() {
         </div>
 
         {/* ─── Notifications ─── */}
-        <button className="hover:text-white transition relative" aria-label="Notificações">
-          <Bell size={20} />
-          <span className="absolute -top-1 -right-1 w-2 h-2 bg-lunima-gold rounded-full" />
-        </button>
+        <div ref={notificationsRef} className="relative">
+          <button 
+            onClick={() => setNotificationsOpen((n) => !n)}
+            className="hover:text-white transition relative" 
+            aria-label="Notificações"
+          >
+            <Bell size={20} />
+          </button>
+          
+          {notificationsOpen && (
+            <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl z-50 overflow-hidden animate-fade-in">
+              <div className="px-4 py-4 text-center text-lunima-light-gray text-sm">
+                Nada aqui no momento
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* ─── Profile Dropdown ─── */}
         <div ref={profileRef} className="relative">
@@ -244,7 +264,7 @@ export default function Navbar() {
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 top-full mt-2 w-44 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl z-50 overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-44 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl z-50 overflow-hidden animate-fade-in">
               {/* User info */}
               <div className="px-3 py-2.5 border-b border-zinc-700">
                 <p className="text-white text-sm font-semibold truncate">{user?.nome ?? "Usuário"}</p>
