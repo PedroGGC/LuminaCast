@@ -1,7 +1,8 @@
 import json
-from datetime import datetime
+import asyncio
+from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -75,11 +76,13 @@ async def add_to_history(
 
 @router.get("/history")
 async def get_history(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
     Retorna o histórico de visualização (máx 20 itens).
+    Re-valida disponibilidade em background quando passam 30 dias.
     """
     current_user_id = current_user.id
     entries = (
@@ -91,8 +94,11 @@ async def get_history(
     )
 
     result = []
+    items_for_revalidation = []
+
     for entry in entries:
-        media = db.query(Media).filter(Media.external_id == entry.media_id).first()
+        clean_id = entry.media_id.replace("mal_", "").replace("tmdb_", "")
+        media = db.query(Media).filter(Media.external_id == clean_id).first()
 
         result.append(
             {
@@ -106,7 +112,57 @@ async def get_history(
             }
         )
 
+        # Verificar se precisa de revalidação (Task 5)
+        if media and entry.media_type == "anime":
+            needs_check = True
+            if media.last_verified:
+                try:
+                    last_dt = datetime.fromisoformat(media.last_verified)
+                    needs_check = last_dt < datetime.utcnow() - timedelta(days=30)
+                except Exception:
+                    pass
+            if needs_check:
+                mal_id_str = clean_id
+                items_for_revalidation.append(mal_id_str)
+
+    if items_for_revalidation:
+        # Usar asyncio.create_task para rodar em background (sem bloquear)
+        asyncio.create_task(_revalidate_history_media(items_for_revalidation))
+
     return result
+
+
+async def _revalidate_history_media(external_ids: list) -> None:
+    """
+    Task 5: Verifica disponibilidade dos animes do histórico em background.
+    Atualiza `last_verified` e `available` no banco de dados.
+    """
+    from app.database import SessionLocal
+    from app.models import Media
+    from app.services.scraper import resolve_provider_slug
+
+    db = SessionLocal()
+    try:
+        for ext_id in external_ids:
+            if not ext_id.isdigit():
+                continue
+            mal_id = int(ext_id)
+            try:
+                slug = await resolve_provider_slug(mal_id)
+                is_available = slug is not None
+            except Exception:
+                is_available = False
+
+            media = db.query(Media).filter(Media.external_id == ext_id).first()
+            if media:
+                media.last_verified = datetime.utcnow().isoformat()
+                media.available = is_available
+                db.commit()
+                print(f"[History Lazy] MAL {mal_id} — disponível={is_available}")
+    except Exception as e:
+        print(f"[History Lazy Revalidation] Erro: {e}")
+    finally:
+        db.close()
 
 
 @router.get("/history/{media_id}")
