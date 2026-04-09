@@ -1,65 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import {
-  ArrowLeft,
-  Play,
-  Star,
-  Calendar,
-  Film,
-  Download,
-  Loader2,
-  Plus,
-  Check,
-  HelpCircle,
-} from "lucide-react";
-import { api, MediaEpisode, AnimeDetail as AnimeDetailType } from "../lib/api";
+import { ArrowLeft, Play, Star, Calendar, Film, Download, Loader2, Plus, Check, HelpCircle } from "lucide-react";
+import { api, MediaEpisode, AnimeDetail as AnimeDetailType, downloadWithProgress } from "../lib/api";
 import { useMyListStore } from "../store/myListStore";
-import { useAuthStore } from "../store/authStore";
-
-// ─── Helper: download com progresso ─────────────────────────────────────────
-async function downloadWithProgress(
-  url: string, 
-  filename: string, 
-  onProgress: (progress: number) => void
-) {
-  const token = useAuthStore.getState().token;
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  
-  const response = await fetch(url, { 
-    credentials: "include",
-    headers 
-  });
-  if (!response.ok) throw new Error("Download failed");
-  
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("No reader");
-  
-  const headerContentLength = response.headers.get("Content-Length");
-  const contentLength = headerContentLength ? +headerContentLength : 0;
-  let receivedLength = 0;
-  const chunks: any[] = [];
-  
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    receivedLength += value.length;
-    if (contentLength > 0) {
-      onProgress(Math.round((receivedLength / contentLength) * 100));
-    }
-  }
-  
-  const blob = new Blob(chunks as BlobPart[]);
-  const blobUrl = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = blobUrl;
-  a.setAttribute("download", filename);
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(blobUrl);
-}
 
 export default function AnimeDetail() {
   const { id } = useParams<{ id: string }>();
@@ -72,37 +15,49 @@ export default function AnimeDetail() {
   const [error, setError] = useState<string | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
 
-  // Download range
+  // Intervalo de download
   const [rangeFrom, setRangeFrom] = useState<number>(1);
   const [rangeTo, setRangeTo] = useState<number>(1);
   const [isBatchDownloading, setIsBatchDownloading] = useState(false);
   const [batchDownloadComplete, setBatchDownloadComplete] = useState(false);
 
-  // Per-episode download state: 'downloading' | 'complete' | undefined
+  // Estado de download por episódio: 'downloading' | 'complete' | undefined
   const [downloadState, setDownloadState] = useState<Record<number, 'downloading' | 'complete'>>({});
 
-  // Download availability check (background)
+  // Verificação de disponibilidade de download (em background)
   const [canDownload, setCanDownload] = useState(true);
 
-  // Minha Lista state
-  const myListIds = useMyListStore((state) => state.items);
-  const addToMyList = useMyListStore((state) => state.add);
-  const [listStatus, setListStatus] = useState<"idle" | "adding" | "added">("idle");
+  // Estado da Minha Lista
+  const { items, fetchList, initialized } = useMyListStore();
+  const [listStatus, setListStatus] = useState<"idle" | "adding" | "added" | "removing">("idle");
+  const [listLoaded, setListLoaded] = useState(false);
 
-  // Watch history state
+  // Normaliza ID para número
+  const numericId = Number(String(id).replace('mal_', '').replace('tmdb_', ''));
+
+  // Busca lista ao-mountar
+  useEffect(() => {
+    if (!initialized || items.length === 0) {
+      fetchList().then(() => setListLoaded(true));
+    } else {
+      setListLoaded(true);
+    }
+  }, []);
+
+  // Sincroniza estado com store
+  useEffect(() => {
+    if (!id || !listLoaded) return;
+    const hasId = items.includes(numericId);
+    setListStatus(hasId ? "added" : "idle");
+  }, [items, numericId, listLoaded]);
+
+  // Estado do histórico de episódios assistidos
   const [watchedEpisodes, setWatchedEpisodes] = useState<number[]>([]);
   const [hoveredWatchedEp, setHoveredWatchedEp] = useState<number | null>(null);
 
-  // Sync with global store
-  useEffect(() => {
-    if (id && myListIds.includes(Number(id))) {
-      setListStatus("added");
-    } else {
-      setListStatus("idle");
-    }
-  }, [id, myListIds]);
+  const [syncingMessage, setSyncingMessage] = useState("");
 
-  // ─── Fetch media details and episodes ───────────────────────────────────────
+  // ─── Busca detalhes do anime e episódios ───────────────────────────────────────
   useEffect(() => {
     if (!id) return;
 
@@ -112,10 +67,28 @@ export default function AnimeDetail() {
       setAnime(null);
       setEpisodes([]);
       setError(null);
+      setSyncingMessage("");
 
       try {
-        // Endpoint otimizado: carrega tudo de uma vez (evita race conditions)
-        const fullRes = await api.get(`/api/media/${id}/full`);
+        let fullRes = await api.get(`/api/media/${id}/full`);
+        
+        if (fullRes.status === 202) {
+          setSyncingMessage("Carregando Conteúdo...");
+          while (fullRes.status === 202) {
+            await new Promise((r) => setTimeout(r, 3000));
+            // Polling para verificar se a sincronização foi concluída
+            try {
+              fullRes = await api.get(`/api/media/${id}/full`);
+            } catch (pollErr: any) {
+              if (pollErr.response?.status === 404) {
+                 throw new Error("Mídia não foi encontrada nas APIs externas. Tente novamente mais tarde.");
+              }
+              throw pollErr;
+            }
+          }
+          setSyncingMessage("");
+        }
+
         const { media, episodes, can_download } = fullRes.data;
 
         setAnime({ ...media, episodes: [] });
@@ -139,7 +112,7 @@ export default function AnimeDetail() {
         }
       } catch (e: any) {
         console.error("Erro ao carregar dados:", e);
-        setError(e.message);
+        setError(e.response?.data?.detail || e.message);
       } finally {
         setLoading(false);
         setIsInitialLoading(false);
@@ -149,7 +122,7 @@ export default function AnimeDetail() {
     fetchData();
   }, [id]);
 
-  // Group episodes by season
+  // Agrupa episódios por temporada
   const episodesBySeason = useMemo(() => {
     const map: Record<number, MediaEpisode[]> = {};
     episodes.forEach((ep) => {
@@ -179,7 +152,7 @@ export default function AnimeDetail() {
   const maxEpInSeason = currentSeasonEpisodes.length;
   const rangeError = rangeTo > maxEpInSeason;
 
-  // ─── Handlers ───────────────────────────────────────────────────────────
+  // ─── Handlers (Funções de Ação) ───────────────────────────────────────────────────────────
   const handleBatchDownload = async () => {
     if (rangeError || rangeFrom > rangeTo || isBatchDownloading) return;
 
@@ -229,14 +202,29 @@ export default function AnimeDetail() {
   };
 
   const handleAddToList = async () => {
-    if (!anime || listStatus !== "idle") return;
+    if (!anime || listStatus === "adding" || listStatus === "removing") return;
+    
+    // Usa o ID da URL (MAL ID) para consistência com Home
+    const numericId = Number(String(id).replace('mal_', '').replace('tmdb_', ''));
+    
+    if (listStatus === "added") {
+      setListStatus("removing");
+      try {
+        await useMyListStore.getState().remove(numericId);
+        setListStatus("idle");
+      } catch (e: any) {
+        console.error("Erro ao remover:", e);
+        setListStatus("added");
+      }
+      return;
+    }
+    
     setListStatus("adding");
     try {
-      // Use anime.id (the real integer PK from the DB), NOT Number(id) from the URL
-      // URL params can be prefixed strings like "mal_12345" — Number() would return NaN
-      await addToMyList(anime.id as number);
+      await useMyListStore.getState().add(numericId);
       setListStatus("added");
     } catch (e) {
+      console.error("Erro ao adicionar:", e);
       setListStatus("idle");
     }
   };
@@ -245,7 +233,9 @@ export default function AnimeDetail() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-lunima-black">
         <div className="w-12 h-12 border-4 border-lunima-gold border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-lunima-light-gray text-sm">Carregando informações da mídia...</p>
+        <p className="text-lunima-light-gray text-sm">
+          {syncingMessage || "Carregando informações da mídia..."}
+        </p>
       </div>
     );
   }
@@ -312,12 +302,13 @@ export default function AnimeDetail() {
         <div className="flex items-center gap-3 mb-10">
           <button
             onClick={handleAddToList}
-            disabled={listStatus !== "idle"}
+            disabled={listStatus === "adding" || listStatus === "removing"}
             className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold border transition ${
-              listStatus === "added" ? "border-lunima-gold text-lunima-gold bg-lunima-gold/10 cursor-default" : "border-white/30 text-white hover:border-white/60 hover:bg-white/10"
+              listStatus === "added" ? "border-lunima-gold text-lunima-gold bg-lunima-gold/10 hover:border-lunima-gold/60" : "border-white/30 text-white hover:border-white/60 hover:bg-white/10"
             }`}
           >
             {listStatus === "adding" ? <><Loader2 size={15} className="animate-spin" /> Adicionando...</> : 
+             listStatus === "removing" ? <><Loader2 size={15} className="animate-spin" /> Removendo...</> : 
              listStatus === "added" ? <><Check size={15} /> Na minha lista</> : 
              <><Plus size={15} /> Adicionar à lista</>}
           </button>
@@ -342,7 +333,7 @@ export default function AnimeDetail() {
             {!canDownload && (
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-6">
                 <p className="text-amber-400 text-sm font-medium">
-                  ⚠️ Os downloads estão temporariamente indisponíveis para os episódios desta obra.
+                   Os downloads estão temporariamente indisponíveis para os episódios desta obra.
                 </p>
               </div>
             )}
@@ -428,7 +419,7 @@ export default function AnimeDetail() {
 
         {episodes.length === 0 && !loading && (
           <div className="text-lunima-gray text-sm border border-dashed border-white/10 rounded-lg p-8 text-center">
-            Nenhum episódio disponível. Execute a sincronização para carregar os episódios.
+            Nenhum episódio disponível no momento.
           </div>
         )}
       </div>

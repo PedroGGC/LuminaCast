@@ -19,13 +19,7 @@ export const useMyListStore = create<MyListStore>((set, get) => ({
     set({ loading: true });
     try {
       const data = await fetchMyList();
-      // Store both the internal DB ID and the prefixed external ID 
-      // so `includes` works accurately on Home (prefixed strings) and Details (internal IDs).
-      const newItems = data.flatMap(i => {
-        if (!i.media) return [i.media_id];
-        const prefix = i.media.media_type === 'anime' ? 'mal_' : 'tmdb_';
-        return [i.media_id, `${prefix}${i.media.external_id}`];
-      });
+      const newItems = data.flatMap(i => [i.media_id]);
       set({ items: newItems, initialized: true });
     } catch (e) {
       console.error('Failed to fetch my list:', e);
@@ -35,11 +29,10 @@ export const useMyListStore = create<MyListStore>((set, get) => ({
   },
   add: async (id) => {
     try {
-      // Evita duplicatas no estado local otimista
-      if (get().items.includes(id)) return;
-      
-      set({ items: [...get().items, id] });
-      await addToMyList(id);
+      const numericId = Number(String(id).replace('mal_', '').replace('tmdb_', ''));
+      if (get().items.includes(numericId)) return;
+      set({ items: [...get().items, numericId] });
+      await addToMyList(numericId);
     } catch (e) {
       set({ items: get().items.filter(i => i !== id) });
       console.error(e);
@@ -47,8 +40,9 @@ export const useMyListStore = create<MyListStore>((set, get) => ({
   },
   remove: async (id) => {
     try {
-      set({ items: get().items.filter(i => i !== id) });
-      await removeFromMyList(id);
+      const numericId = Number(String(id).replace('mal_', '').replace('tmdb_', ''));
+      set({ items: get().items.filter(i => i !== numericId) });
+      await removeFromMyList(numericId);
     } catch (e) {
       console.error(e);
     }

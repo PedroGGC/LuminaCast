@@ -26,10 +26,14 @@ export default function MyList() {
       .finally(() => setLoading(false));
   };
 
-  const handleRemove = async (mediaId: number) => {
+  const handleRemove = async (item: UserListResponse) => {
+    // Usa o external_id se disponível (MAL ID), senão usa media_id
+    const malId = item.media?.external_id || item.media_id;
+    const numericId = Number(malId);
+    
     try {
-      await removeGlobal(mediaId);
-      setFullItems((prev) => prev.filter((i) => i.media_id !== mediaId));
+      await removeGlobal(numericId);
+      setFullItems((prev) => prev.filter((i) => i.id !== item.id));
     } catch {
       alert("Erro ao remover da lista");
     }
@@ -58,10 +62,13 @@ export default function MyList() {
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {fullItems.map((item) => (
+          {fullItems.map((item) => {
+            const prefix = item.media?.media_type === 'anime' ? 'mal_' : 'tmdb_';
+            const mediaId = `${prefix}${item.media.external_id || item.media_id}`;
+            return (
             <div key={item.id} className="relative group">
-              <Link to={`/media/${item.media_id}`} className="block">
-                <div className="relative aspect-[2/3] rounded-lg overflow-hidden shadow-lg bg-zinc-900">
+              <Link to={`/media/${mediaId}`} className="block overflow-hidden rounded-lg">
+                <div className="relative aspect-[2/3] bg-zinc-900">
                   {item.media.poster_url ? (
                     <img
                       src={item.media.poster_url}
@@ -74,31 +81,29 @@ export default function MyList() {
                     </div>
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                
+                  <div className="absolute bottom-1 left-1 right-1 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <Link
+                      to={`/media/${mediaId}`}
+                      className="w-7 h-7 flex items-center justify-center bg-white rounded-full hover:bg-white/80 transition"
+                      aria-label="Assistir"
+                    >
+                      <Play size={12} fill="black" className="text-black" />
+                    </Link>
+                    <button
+                      className="w-7 h-7 flex items-center justify-center border border-white bg-black/50 text-white rounded-full hover:bg-red-600 hover:border-red-600 transition"
+                      title="Remover da lista"
+                      onClick={(e) => { e.preventDefault(); handleRemove(item); }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 </div>
               </Link>
 
-              {/* Overlay buttons */}
-              <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <Link
-                  to={`/media/${item.media_id}`}
-                  className="w-9 h-9 flex items-center justify-center bg-white rounded-full hover:bg-white/80 transition"
-                  aria-label="Assistir"
-                >
-                  <Play size={15} fill="black" className="text-black" />
-                </Link>
-                <button
-                  className="w-9 h-9 flex items-center justify-center border border-white bg-black/50 text-white rounded-full hover:bg-red-600 hover:border-red-600 transition"
-                  title="Remover da lista"
-                  onClick={() => handleRemove(item.media_id)}
-                >
-                  <X size={15} />
-                </button>
-              </div>
-
-              {/* Title below */}
               <p className="mt-2 text-xs text-zinc-300 truncate px-0.5">{item.media.title}</p>
             </div>
-          ))}
+          )})}
         </div>
       )}
     </main>

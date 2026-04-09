@@ -10,18 +10,18 @@ interface Props {
 
 export default function AnimeCard({ anime }: Props) {
   const [hovered, setHovered] = useState(false);
-  const myListIds = useMyListStore(state => state.items);
-  const addToMyList = useMyListStore(state => state.add);
-  const removeFromMyList = useMyListStore(state => state.remove);
+  const { items, add, remove } = useMyListStore();
 
-  const isInList = myListIds.includes(anime.id);
+  // Normaliza para número
+  const numericId = Number(String(anime.id).replace('mal_', '').replace('tmdb_', ''));
+  const isInList = items.includes(numericId);
 
-  const handleListToggle = (e: React.MouseEvent) => {
+  const handleListToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (isInList) {
-      removeFromMyList(anime.id);
+      await remove(numericId);
     } else {
-      addToMyList(anime.id);
+      await add(numericId);
     }
   };
 
