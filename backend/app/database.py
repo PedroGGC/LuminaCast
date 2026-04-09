@@ -17,18 +17,30 @@ class Base(DeclarativeBase):
 
 
 def init_db():
-    """Inicializa o banco, criando colunas faltantes se necessário."""
-    from app.models import Media
+    """Inicializa o banco, criando colunas/tabelas faltantes se necessário."""
+    from app import models
     from sqlalchemy import inspect
 
-    inspector = inspect(engine)
-    columns = [c["name"] for c in inspector.get_columns("media")]
+    # --- Cria tabelas novas
+    Base.metadata.create_all(bind=engine)
 
-    if "backdrop_url" not in columns:
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE media ADD COLUMN backdrop_url VARCHAR(500)"))
-            conn.commit()
-        print("[DB] Coluna backdrop_url adicionada à tabela media")
+    inspector = inspect(engine)
+
+    # --- Migra colunas faltantes na tabela `media` ---
+    media_cols = [c["name"] for c in inspector.get_columns("media")]
+
+    missing_media = {
+        "backdrop_url": "VARCHAR(500)",
+        "last_verified": "VARCHAR(50)",
+        "available": "BOOLEAN DEFAULT 1",
+    }
+    for col, col_type in missing_media.items():
+        if col not in media_cols:
+            with engine.connect() as conn:
+                conn.execute(text(f"ALTER TABLE media ADD COLUMN {col} {col_type}"))
+                conn.commit()
+            print(f"[DB] Coluna '{col}' adicionada à tabela media")
+
 
 
 def get_db():

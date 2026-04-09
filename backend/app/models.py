@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    Boolean,
     Column,
     Integer,
     String,
@@ -88,6 +89,9 @@ class Media(Base):
     poster_url = Column(String(500), nullable=True)
     backdrop_url = Column(String(500), nullable=True)
     media_type = Column(String(50))  # "anime" ou "desenho"
+    #campos de verificação de disponibilidade
+    last_verified = Column(String(50), nullable=True)   # ISO datetime string
+    available = Column(Boolean, default=True, nullable=False)
 
     episodes = relationship(
         "MediaEpisode", back_populates="media", cascade="all, delete-orphan"
@@ -147,3 +151,15 @@ class WatchHistory(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "media_id", name="uix_user_media_history"),
     )
+
+
+class ApiCache(Base):
+    """Cache híbrido de resultados de busca no banco de dados (TTL: 7 dias)."""
+    __tablename__ = "api_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    query = Column(String(500), unique=True, index=True, nullable=False)
+    result_json = Column(Text, nullable=True)
+    available_data = Column(Text, nullable=True)
+    verified_at = Column(String(50), nullable=True)
+    expires_at = Column(String(50), nullable=True)
