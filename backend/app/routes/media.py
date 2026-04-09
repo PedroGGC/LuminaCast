@@ -1,20 +1,22 @@
 import asyncio
 import io
+import os
 import zipfile
 import httpx
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.limiter import limiter
 
-# Adicionamos AnimeMapping aqui:
+# Importa o modelo de mapping anime->MAL ID aqui
 from app.models import Media, MediaEpisode, AnimeMapping
 from app.schemas import MediaOut, MediaEpisodeOut
 from app.services.scraper import extract_episode_url
 
-# Adicionamos o serviço de sync que você refatorou:
+# Importa o serviço de sincronização (refatorado)
 from app.services.sync_service import sync_media_by_id
 
 router = APIRouter(prefix="/api", tags=["media"])
@@ -24,7 +26,34 @@ DUMMY_VIDEO_URL = (
 )
 
 
-# ─── Listagens ────────────────────────────────────────────────────────────────
+def _resolve_media_prefix(media_id: str) -> tuple[str, str | None]:
+    """Resolve prefix from media_id and return (clean_id, media_type)."""
+    media_type = None
+    if media_id.startswith("mal_"):
+        media_type = "anime"
+        media_id = media_id.replace("mal_", "")
+    elif media_id.startswith("tmdb_"):
+        media_type = "desenho"
+        media_id = media_id.replace("tmdb_", "")
+    return media_id, media_type
+
+
+def _get_media_by_query(
+    db: Session, media_id: str, media_type: str | None
+) -> Media | None:
+    """Generic media query by external_id or internal id."""
+    if media_type in ("anime", "desenho"):
+        return db.query(Media).filter(Media.external_id == media_id).first()
+    elif media_id.isdigit():
+        return (
+            db.query(Media)
+            .filter((Media.id == int(media_id)) | (Media.external_id == media_id))
+            .first()
+        )
+    return db.query(Media).filter(Media.external_id == media_id).first()
+
+
+# ─── Listações de Mídia ────────────────────────────────────────────────────────────────
 
 
 @router.get("/media/animes", response_model=list[MediaOut])
@@ -62,33 +91,13 @@ async def get_media_detail(
     if media_id == "undefined":
         raise HTTPException(status_code=400, detail="Invalid Media ID")
 
-    # ─── 1. RESOLUÇÃO INTELIGENTE DE PREFIXO E TIPO ───
-    # Se o frontend enviar o ID com um prefixo (ideal para resultados de busca)
-    if media_id.startswith("mal_"):
-        media_type = "anime"
-        media_id = media_id.replace("mal_", "")
-    elif media_id.startswith("tmdb_"):
-        media_type = "desenho"
-        media_id = media_id.replace("tmdb_", "")
+    media_id, media_type = _resolve_media_prefix(media_id)
+    media = _get_media_by_query(db, media_id, media_type)
 
-    # ─── 2. BUSCA NO BANCO DE DADOS ───
-    # Se veio com prefixo mal_ ou tmdb_, sempre busca por external_id
-    media = None
-    if media_type in ("anime", "desenho"):
-        media = db.query(Media).filter(Media.external_id == media_id).first()
-    elif media_id.isdigit():
-        media = (
-            db.query(Media)
-            .filter((Media.id == int(media_id)) | (Media.external_id == media_id))
-            .first()
-        )
-    else:
-        media = db.query(Media).filter(Media.external_id == media_id).first()
-
-    # ─── 3. FALLBACK DE SEGURANÇA (Para itens do Seed) ───
+    # ─── 3. Fallback de Segurança (para Itens do Seed) ───
     # Se ainda não sabe o tipo, a mídia não está no banco e o ID é numérico
     if not media and not media_type and media_id.isdigit():
-        from app.models import AnimeMapping  # Importa o modelo de mapping
+        from app.models import AnimeMapping  # Importa o modelo de mapping anime->MAL ID
 
         is_seeded_anime = (
             db.query(AnimeMapping).filter(AnimeMapping.mal_id == int(media_id)).first()
@@ -96,7 +105,8 @@ async def get_media_detail(
         if is_seeded_anime:
             media_type = "anime"
 
-    # ─── 4. JIT SYNC ───
+    # ─── 4. JIT Sync (Sincronização em Tempo Real) ───
+    # P1.1: Sincroniza em background se não houver episódios
     has_episodes = False
     if media:
         has_episodes = (
@@ -105,27 +115,39 @@ async def get_media_detail(
         if not media_type:
             media_type = (
                 media.media_type
-            )  # Pega o tipo do banco para garantir o Sync correto
+            )  # Pega o tipo do banco para garantir a sincronização correta
 
     if not media or not has_episodes:
-        # Se media_type for None aqui, o sync_service vai tentar adivinhar (TMDB)
         print(
-            f"[JIT Sync] Gatilho acionado para mídia {media_id} (Tipo resolvido: {media_type}). Sincronizando..."
+            f"[JIT Sync] Gatilho acionado para mídia {media_id} (Tipo: {media_type}). Agendando em background..."
         )
-        media = await sync_media_by_id(media_id, media_type, db)
-        if not media:
-            raise HTTPException(
-                status_code=404, detail="Mídia não encontrada nas APIs externas"
-            )
+        background_tasks.add_task(_run_background_sync, str(media_id), media_type)
+        from fastapi.responses import JSONResponse
 
-    # QUEBRA O ISOLAMENTO DA TRANSAÇÃO: força nova transação para enxergar dados do sync
-    db.commit()
-    db.expire_all()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": "Sincronização em andamento. Por favor, tente novamente em alguns segundos.",
+                "status": "syncing",
+            },
+        )
 
-    # Busca final com dados frescos
-    media = db.query(Media).filter(Media.id == media.id).first()
-
+    # Retorna o item que já estava no banco (não necesitamos mais forçar expirações na thread principal)
     return media
+
+
+async def _run_background_sync(media_id: str, media_type: Optional[str]):
+    """Helper para rodar o JIT Sync no background com nova sessão do DB."""
+    from app.database import SessionLocal
+    from app.services.sync_service import sync_media_by_id
+
+    db = SessionLocal()
+    try:
+        await sync_media_by_id(media_id, media_type, db)
+    except Exception as e:
+        print(f"[Background Sync Error] {e}")
+    finally:
+        db.close()
 
 
 @router.get("/media/{media_id}/check-source")
@@ -208,12 +230,15 @@ async def check_media_source(
 
 @router.get("/media/{media_id}/full")
 async def get_media_full(
-    media_id: str, media_type: Optional[str] = None, db: Session = Depends(get_db)
+    background_tasks: BackgroundTasks,
+    media_id: str,
+    media_type: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     """
     Endpoint otimizado que carrega todos os dados de uma vez.
-    BLOQUEIA a requisição até o JIT Sync completar (se necessário).
-    Retorna: { media, episodes, can_download }
+    Retorna 202 Accepted se o JIT Sync estiver em andamento.
+    Retorna 200 OK: { media, episodes, can_download }
     """
     if media_id == "undefined":
         raise HTTPException(status_code=400, detail="Invalid Media ID")
@@ -261,16 +286,22 @@ async def get_media_full(
     else:
         needs_sync = True
 
-    # BLOQUEIA a requisição até o sync completar (se necessário)
-    if needs_sync:
-        print(f"[Full Load] Sync acionado para {media_id} (tipo: {media_type})")
-        media = await sync_media_by_id(media_id, media_type, db)
-        # Apenas retorna 404 se a mídia NÃO existia antes do sync
-        # (i.e., sync falhou em encontrar a mídia nas APIs externas)
-        if not media and not (
-            db.query(Media).filter(Media.external_id == media_id).first()
-        ):
-            raise HTTPException(status_code=404, detail="Mídia não encontrada")
+    # P1.1: Retorna 202 APENAS se é mídia nova (não existe no banco)
+    # Se já existe mas sem episódios, retorna dados mesmo assim
+    if needs_sync and not media:
+        print(
+            f"[Full Load] Gatilho acionado para {media_id} (tipo: {media_type}). Agendando sync em background..."
+        )
+        background_tasks.add_task(_run_background_sync, str(media_id), media_type)
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "syncing",
+                "message": "Buscando dados nas APIs externas...",
+            },
+        )
 
     db.commit()
     db.expire_all()
@@ -364,7 +395,7 @@ async def get_media_episodes(
         if not media:
             return []
 
-    # QUEBRA O ISOLAMENTO DA TRANSAÇÃO: força nova transação para enxergar dados do sync
+    # Quebra o Isolamento da Transação: força nova transação para enxergar dados da sincronização
     db.commit()
     db.expire_all()
 
@@ -485,8 +516,12 @@ async def stream_episode(episode_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/download/episode/{episode_id}")
-async def download_single_episode(episode_id: int, db: Session = Depends(get_db)):
+@limiter.limit("15/minute")
+async def download_single_episode(
+    request: Request, episode_id: int, db: Session = Depends(get_db)
+):
     """Proxy download de um episódio real extraído pelo scraper."""
+
     episode = db.query(MediaEpisode).filter(MediaEpisode.id == episode_id).first()
     if not episode:
         raise HTTPException(status_code=404, detail="Episódio não encontrado")
@@ -523,6 +558,33 @@ async def download_single_episode(episode_id: int, db: Session = Depends(get_db)
     # Blindagem contra falha total
     if not video_url:
         raise HTTPException(status_code=404, detail="URL de vídeo não encontrada.")
+
+    # Task P0.2 - Proteção SSRF
+    import urllib.parse
+    import ipaddress
+
+    try:
+        parsed = urllib.parse.urlparse(video_url)
+        if parsed.scheme not in ("http", "https"):
+            raise Exception("Scheme não permitido.")
+        host = parsed.hostname
+        if not host:
+            raise Exception("Sem hostname.")
+        if host.lower() in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+            raise Exception("Hostname bloqueado.")
+
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                raise Exception("IP privado/local bloqueado.")
+        except ValueError:
+            pass  # É um domínio não um IP direto
+    except Exception as e:
+        print(f"[SSRF Blocked] URL: {video_url} | Motivo: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail="Endpoint de download inválido ou bloqueado por segurança.",
+        )
 
     # Blindagem contra Iframe (Blogger bloqueado)
     if "blogger.com" in video_url or "video.g" in video_url:
@@ -572,12 +634,23 @@ async def download_single_episode(episode_id: int, db: Session = Depends(get_db)
 
 
 @router.get("/download-batch")
-async def download_batch(episode_ids: str = Query(...), db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+async def download_batch(
+    request: Request, episode_ids: str = Query(...), db: Session = Depends(get_db)
+):
     """
     Recebe IDs separados por vírgula.
-    Extrai as URLs reais e monta um ZIP usando streaming (não carrega tudo na RAM).
+    P1.2: Extrai as URLs reais e faz download em disco com arquivos temporários (não usa RAM).
+    P1.3: Limita concorrência com Semáforo.
     """
+
     from sqlalchemy.orm import joinedload
+    import tempfile
+    import shutil
+    import os
+    import time
+    from starlette.background import BackgroundTask
+    from fastapi.responses import FileResponse
 
     ep_ids = [int(i.strip()) for i in episode_ids.split(",") if i.strip().isdigit()]
     if not ep_ids:
@@ -609,11 +682,11 @@ async def download_batch(episode_ids: str = Query(...), db: Session = Depends(ge
 
     from app.services.scraper import (
         extract_episode_url,
-        resolve_anime_slug,
+        resolve_provider_slug,
         get_cached_slug as scraper_get_cached_slug,
     )
 
-    async def get_cached_slug(media_type, external_id, title):
+    async def get_cached_slug(media_type, external_id, title, season_hint=None):
         if media_type != "anime" or not external_id:
             return None
         mal_id = int(external_id) if external_id.isdigit() else None
@@ -624,7 +697,7 @@ async def download_batch(episode_ids: str = Query(...), db: Session = Depends(ge
         if cached:
             return cached
 
-        url = await resolve_anime_slug(mal_id)
+        url = await resolve_provider_slug(mal_id, season_hint=season_hint)
         if url:
             return url.split("/")[-1] if "/" in url else url
         return None
@@ -637,97 +710,113 @@ async def download_batch(episode_ids: str = Query(...), db: Session = Depends(ge
         "video.g",
     ]
 
+    tmp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(
+        tempfile.gettempdir(), f"batch_download_{int(time.time())}.zip"
+    )
+
+    # Limite de 5 downloads simultâneos
+    sem = asyncio.Semaphore(5)
+
     async def download_single_ep(ep, client):
-        """Baixa um único episódio e retorna (filename, content) ou None."""
-        media_type = ep["media_type"]
-        media_title = ep["media_title"]
-        external_id = ep["external_id"]
+        """Baixa arquivo temp no disco e retorna (filename, filepath)."""
+        async with sem:
+            media_type = ep["media_type"]
+            media_title = ep["media_title"]
+            external_id = ep["external_id"]
 
-        try:
-            if media_type != "anime" and external_id:
-                from app.services.embed_providers import get_embed_urls
+            try:
+                if media_type != "anime" and external_id:
+                    from app.services.embed_providers import get_embed_urls
 
-                urls = get_embed_urls(
-                    media_type=media_type,
-                    tmdb_id=external_id,
-                    season=ep["season_number"],
-                    episode=ep["episode_number"],
-                )
-                video_url = urls[0] if urls else ""
-            else:
-                original_title = media_title
-                cached_slug = await get_cached_slug(
-                    media_type, external_id, media_title
-                )
-                video_url = await extract_episode_url(
-                    external_id=str(external_id),
-                    title=media_title,
-                    original_title=original_title,
-                    season=ep["season_number"],
-                    episode=ep["episode_number"],
-                    media_type=media_type,
-                    cached_slug=cached_slug,
-                )
-
-            if (
-                any(ind in video_url for ind in embed_indicators_block)
-                or "http" not in video_url
-            ):
-                print(
-                    f"[Batch ZIP] Pulando EP {ep['episode_number']} (Externo/Invalido)"
-                )
-                return None
-
-            clean_title = "".join(
-                c
-                for c in (ep["title"] or "Sem_Titulo")
-                if c.isalnum() or c in (" ", "_")
-            ).replace(" ", "_")
-            fname = f"S{ep['season_number']:02d}E{ep['episode_number']:02d}_{clean_title}.mp4"
-
-            async with client.stream("GET", video_url) as response:
-                if response.status_code == 200:
-                    content = b""
-                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024 * 4):
-                        content += chunk
-                    print(
-                        f"[Batch ZIP] Baixado EP {ep['episode_number']} ({len(content) // 1024 // 1024}MB)"
+                    urls = get_embed_urls(
+                        media_type=media_type,
+                        tmdb_id=external_id,
+                        season=ep["season_number"],
+                        episode=ep["episode_number"],
                     )
-                    return (fname, content)
-        except Exception as e:
-            print(f"[Batch ZIP Error] Erro no episódio {ep['id']}: {e}")
-        return None
+                    video_url = urls[0] if urls else ""
+                else:
+                    original_title = media_title
+                    cached_slug = await get_cached_slug(
+                        media_type, external_id, media_title
+                    )
+                    video_url = await extract_episode_url(
+                        external_id=str(external_id),
+                        title=media_title,
+                        original_title=original_title,
+                        season=ep["season_number"],
+                        episode=ep["episode_number"],
+                        media_type=media_type,
+                        cached_slug=cached_slug,
+                    )
 
-    async def generate_zip():
-        zip_buffer = io.BytesIO()
+                if (
+                    any(ind in video_url for ind in embed_indicators_block)
+                    or "http" not in video_url
+                ):
+                    print(
+                        f"[Batch ZIP] Pulando EP {ep['episode_number']} (Externo/Invalido)"
+                    )
+                    return None
 
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=600.0,
-            limits=httpx.Limits(max_connections=20),
-        ) as client:
-            tasks = [download_single_ep(ep, client) for ep in ep_data]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+                clean_title = "".join(
+                    c
+                    for c in (ep["title"] or "Sem_Titulo")
+                    if c.isalnum() or c in (" ", "_")
+                ).replace(" ", "_")
+                fname = f"S{ep['season_number']:02d}E{ep['episode_number']:02d}_{clean_title}.mp4"
+                file_path = os.path.join(tmp_dir, fname)
 
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zf:
-                for result in results:
-                    if isinstance(result, tuple) and result:
-                        fname, content = result
-                        zf.writestr(fname, content)
-                        print(f"[Batch ZIP] Adicionado ao ZIP: {fname}")
-                    elif isinstance(result, Exception):
-                        print(f"[Batch ZIP Error] Task exception: {result}")
+                async with client.stream("GET", video_url) as response:
+                    if response.status_code == 200:
+                        with open(file_path, "wb") as f:
+                            async for chunk in response.aiter_bytes(
+                                chunk_size=1024 * 1024 * 4
+                            ):
+                                f.write(chunk)
+                        print(f"[Batch ZIP] Arquivo salvo EP {ep['episode_number']}")
+                        return (file_path, fname)
+            except Exception as e:
+                print(f"[Batch ZIP Error] Erro no episódio {ep['id']}: {e}")
+            return None
 
-                zf.close()
+    # Dispara os downloads pro disco
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=1200.0,  # Tempo estendido para batch longo
+        limits=httpx.Limits(max_connections=20),
+    ) as client:
+        tasks = [download_single_ep(ep, client) for ep in ep_data]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        zip_buffer.seek(0)
-        yield zip_buffer.getvalue()
+    # Cria o arquivo ZIP sincronamente lendo o disco
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+        for result in results:
+            if isinstance(result, tuple) and result:
+                filepath, arcname = result
+                zf.write(filepath, arcname)
+                print(f"[Batch ZIP] Adicionado ao ZIP: {arcname}")
+            elif isinstance(result, Exception):
+                print(f"[Batch ZIP Error] Task exception: {result}")
 
-    return StreamingResponse(
-        generate_zip(),
+    def cleanup_func():
+        """Remove o temporário e o ZIP final."""
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        try:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        except OSError:
+            pass
+
+    cleanup_task = BackgroundTask(cleanup_func)
+
+    return FileResponse(
+        path=zip_path,
+        filename="episodios.zip",
         media_type="application/x-zip-compressed",
+        background=cleanup_task,
         headers={
-            "Content-Disposition": 'attachment; filename="episodios.zip"',
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
     )
