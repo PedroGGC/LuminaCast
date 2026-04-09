@@ -11,6 +11,7 @@ anime-offline-database.json
 node_modules/
 dist/
 .next/
+*.tsbuildinfo
 
 # Segurança - OBRIGATÓRIO
 .env
