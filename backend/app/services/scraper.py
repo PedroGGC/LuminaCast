@@ -709,15 +709,37 @@ async def extract_episode_url(
         # Usa a rota /resolve que faz tudo: busca + retorna URL do episódio
         from app.services.cloudflare_worker import resolve_episode_url
 
+        # Normaliza o título para minúsculas e remove caracteres especiais
+        import re
+
+        normalized_title = title.lower().strip() if title else ""
+        normalized_title = re.sub(r"[^\w\s\-]", "", normalized_title)
+        normalized_title = re.sub(r"\s+", " ", normalized_title).strip()
+
+        logger.info(
+            f"[Stream] MAL_ID: {mal_id}, Título: '{normalized_title}', Episódio: {episode}"
+        )
+
         # Tenta dublado primeiro
-        video_url = await resolve_episode_url(title, episode, prefer_dubbed=True)
+        video_url = await resolve_episode_url(
+            normalized_title, episode, prefer_dubbed=True
+        )
 
         if video_url != HLS_FALLBACK_URL:
+            logger.info(f"[Stream] Sucesso com dublado: {video_url[:80]}...")
             return video_url
 
         # Tenta legendado
-        video_url = await resolve_episode_url(title, episode, prefer_dubbed=False)
+        logger.info("[Stream] Tentando versão legendado...")
+        video_url = await resolve_episode_url(
+            normalized_title, episode, prefer_dubbed=False
+        )
 
+        if video_url != HLS_FALLBACK_URL:
+            logger.info(f"[Stream] Sucesso com legendado: {video_url[:80]}...")
+            return video_url
+
+        logger.warning(f"[Stream] Fallback ativado para '{normalized_title}'")
         return video_url
 
     return HLS_FALLBACK_URL
