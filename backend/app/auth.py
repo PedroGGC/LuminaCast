@@ -45,20 +45,60 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 def get_current_user(
     token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ):
+    """
+    Suporta DOIS tipos de autenticação:
+    1. Token próprio (email/password) - usa SECRET_KEY
+    2. Token Supabase (Google OAuth) - usa SUPABASE_JWT_SECRET
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    email = None
+    user_id = None
+
+    # Tentativa 1: Token próprio (email/password)
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise credentials_exception
+        email = payload.get("sub")
+        user_id = payload.get("sub")
     except JWTError:
+        pass
+
+    # Tentativa 2: Token Supabase (Google OAuth)
+    if email is None:
+        supabase_secret = os.getenv("SUPABASE_JWT_SECRET")
+        if supabase_secret:
+            try:
+                payload = jwt.decode(
+                    token,
+                    supabase_secret,
+                    algorithms=["HS256"],
+                    options={"verify_aud": False},
+                )
+                email = payload.get("email")
+                user_id = payload.get("sub")
+            except JWTError:
+                pass
+
+    if email is None:
         raise credentials_exception
 
+    # Busca usuário no banco (ou cria se for login Google primeira vez)
     user = db.query(User).filter(User.email == email).first()
+
     if user is None:
-        raise credentials_exception
+        from app.auth import get_password_hash
+
+        user = User(
+            nome=payload.get("user_metadata", {}).get("full_name", email.split("@")[0]),
+            email=email,
+            senha_hash=get_password_hash(f"google_oauth_{user_id}"),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
     return user

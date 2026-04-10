@@ -137,7 +137,7 @@ export default function AuthPage() {
                       className="icon"
                       aria-label="Entrar com Google"
                     >
-                      <img src="/google.svg" alt="Google" className="w-5 h-5" />
+                      <img src="/google_colorido.svg" alt="Google" className="w-5 h-5" />
                     </button>
                 </div>
                 <span>use seu email para se registrar</span>
@@ -161,7 +161,7 @@ export default function AuthPage() {
                       className="icon"
                       aria-label="Entrar com Google"
                     >
-                      <img src="/google.svg" alt="Google" className="w-5 h-5" />
+                      <img src="/google_colorido.svg" alt="Google" className="w-5 h-5" />
                     </button>
                 </div>
                 <span>ou use sua conta de email</span>
