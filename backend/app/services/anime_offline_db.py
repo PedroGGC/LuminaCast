@@ -5,7 +5,7 @@ from functools import lru_cache
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DB_PATH = BASE_DIR / "data" / "anime-offline-database.json"
+DB_PATH = BASE_DIR / "data" / "anime-offline-database.jsonl"
 
 
 @lru_cache(maxsize=1)
