@@ -6,6 +6,8 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+from supabase import create_client, Client
+
 from app.database import get_db
 from app.models import User
 
@@ -17,7 +19,20 @@ if not SECRET_KEY:
         SECRET_KEY = "your-super-secret-key-luminacast"
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 dias (access token expira em 7 dias)
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+
+# Cliente Supabase para validação de tokens
+supabase: Client = None
+
+
+def get_supabase_client() -> Client:
+    global supabase
+    if supabase is None:
+        supabase = create_client(
+            os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY")
+        )
+    return supabase
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
@@ -45,11 +60,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 def get_current_user(
     token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ):
-    """
-    Suporta DOIS tipos de autenticação:
-    1. Token próprio (email/password) - usa SECRET_KEY
-    2. Token Supabase (Google OAuth) - usa SUPABASE_JWT_SECRET
-    """
+    """Valida token: tenta Supabase primeiro (Google), depois token próprio (email/senha)."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -57,48 +68,48 @@ def get_current_user(
     )
 
     email = None
-    user_id = None
+    nome = None
 
-    # Tentativa 1: Token próprio (email/password)
+    # Tentativa 1: Token Supabase (Google OAuth)
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email = payload.get("sub")
-        user_id = payload.get("sub")
-    except JWTError:
+        supabase_client = get_supabase_client()
+        user_response = supabase_client.auth.get_user(token)
+
+        if user_response and user_response.user:
+            supabase_user = user_response.user
+            email = supabase_user.email
+            nome = (
+                supabase_user.user_metadata.get("full_name")
+                if supabase_user.user_metadata
+                else None
+            )
+
+    except Exception:
         pass
 
-    # Tentativa 2: Token Supabase (Google OAuth)
+    # Tentativa 2: Token próprio (email/password)
     if email is None:
-        supabase_secret = os.getenv("SUPABASE_JWT_SECRET")
-        if supabase_secret:
-            try:
-                payload = jwt.decode(
-                    token,
-                    supabase_secret,
-                    algorithms=["HS256"],
-                    options={"verify_aud": False},
-                )
-                email = payload.get("email")
-                user_id = payload.get("sub")
-            except JWTError:
-                pass
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("sub")
+        except JWTError:
+            pass
 
     if email is None:
         raise credentials_exception
 
-    # Busca usuário no banco (ou cria se for login Google primeira vez)
+    # Busca ou cria usuário no banco
     user = db.query(User).filter(User.email == email).first()
 
     if user is None:
-        from app.auth import get_password_hash
-
         user = User(
-            nome=payload.get("user_metadata", {}).get("full_name", email.split("@")[0]),
+            nome=nome or email.split("@")[0],
             email=email,
-            senha_hash=get_password_hash(f"google_oauth_{user_id}"),
+            senha_hash=get_password_hash(f"oauth_{email}"),
         )
         db.add(user)
         db.commit()
         db.refresh(user)
+        print(f"[AUTH] Usuário criado: {email}")
 
     return user
