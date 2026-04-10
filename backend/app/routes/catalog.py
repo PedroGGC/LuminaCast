@@ -16,9 +16,9 @@ from app.limiter import limiter
 router = APIRouter(prefix="/api", tags=["catalog"])
 
 # ─── Cache em Memória (Layer 1) ──────────────────────────────────────────────
-_AVAILABILITY_CACHE: dict = {}   # {mal_id: (is_available, timestamp)}
-_MEM_SEARCH_CACHE: dict = {}     # {q: (results, timestamp)}
-_CACHE_TTL = 86400    # 24h — disponibilidade de anime
+_AVAILABILITY_CACHE: dict = {}  # {mal_id: (is_available, timestamp)}
+_MEM_SEARCH_CACHE: dict = {}  # {q: (results, timestamp)}
+_CACHE_TTL = 86400  # 24h — disponibilidade de anime
 _SEARCH_MEM_TTL = 600  # 10 min — busca em memória
 
 # ─── TTL de Cache no Banco (Layer 2) ─────────────────────────────────────────
@@ -36,7 +36,8 @@ async def get_catalog(
     return query.all()
 
 
-#Helpers de Disponibilidade
+# Helpers de Disponibilidade
+
 
 async def _check_anime_available(mal_id: int) -> bool:
     """Verifica se um anime está disponível no animefire, com cache em memória (Layer 1)."""
@@ -58,7 +59,8 @@ async def _check_anime_available(mal_id: int) -> bool:
     return is_available
 
 
-#Helpers de Cache no Banco
+# Helpers de Cache no Banco
+
 
 def _get_db_cache(q: str) -> list | None:
     """Busca resultado cacheado no banco de dados. Retorna None se expirado/ausente."""
@@ -110,7 +112,7 @@ def _set_db_cache(q: str, results: list) -> None:
         db.close()
 
 
-#Rota de Busca 
+# Rota de Busca
 @router.get("/search")
 @limiter.limit("20/minute")
 async def search_media(request: Request, q: str, media_type: Optional[str] = None):
@@ -163,29 +165,22 @@ async def search_media(request: Request, q: str, media_type: Optional[str] = Non
                         seen_ids.add(m_id)
                         unique_items.append(it)
 
-                async def check_and_format(item):
+                # 直接格式化成结果，不检查可用性
+                for item in unique_items:
                     mal_id = item.get("mal_id")
-                    is_available = await _check_anime_available(mal_id)
-                    if is_available:
-                        return {
+                    results.append(
+                        {
                             "id": f"mal_{mal_id}",
                             "mal_id": mal_id,
                             "title": item.get("title"),
                             "synopsis": item.get("synopsis"),
-                            "poster_url": item.get("images", {}).get("jpg", {}).get("image_url"),
+                            "poster_url": item.get("images", {})
+                            .get("jpg", {})
+                            .get("image_url"),
                             "media_type": "anime",
                             "year": str(item.get("year") or ""),
                         }
-                    return None
-
-                check_tasks = [check_and_format(item) for item in unique_items]
-                checked = await asyncio.gather(*check_tasks, return_exceptions=True)
-
-                for res in checked:
-                    if isinstance(res, Exception):
-                        print(f"[Search Jikan Check Error]: {res}")
-                    elif res is not None:
-                        results.append(res)
+                    )
         except Exception as e:
             print(f"[Search] Erro Jikan: {e}")
 
