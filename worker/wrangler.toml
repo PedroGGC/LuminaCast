@@ -1,0 +1,8 @@
+name = "luminacast-worker"
+main = "worker.js"
+compatibility_date = "2023-12-01"
+
+[env.production]
+routes = [
+  { pattern = "luminacast.pedroogabrielg.workers.dev/*", zone_name = "pedroogabrielg.workers.dev" }
+]
