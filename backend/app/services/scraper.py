@@ -706,38 +706,18 @@ async def extract_episode_url(
     if media_type == "anime":
         mal_id = int(external_id) if external_id and external_id.isdigit() else None
 
-        # Busca o slug correto no AnimeFire via Cloudflare Worker
-        from app.services.cloudflare_worker import (
-            find_anime_slug,
-            get_episode_url_from_worker,
-        )
+        # Usa a rota /resolve que faz tudo: busca + retorna URL do episódio
+        from app.services.cloudflare_worker import resolve_episode_url
 
-        anime_slug = await find_anime_slug(title, prefer_dubbed=True)
+        # Tenta dublado primeiro
+        video_url = await resolve_episode_url(title, episode, prefer_dubbed=True)
 
-        if anime_slug:
-            # Tenta versão dublado primeiro
-            episode_url = f"https://animefire.io/animes/{anime_slug}/{episode}"
-            logger.info(f"Tentando URL: {episode_url}")
-            worker_url = await get_episode_url_from_worker(episode_url)
+        if video_url != HLS_FALLBACK_URL:
+            return video_url
 
-            if worker_url != HLS_FALLBACK_URL:
-                return worker_url
+        # Tenta legendado
+        video_url = await resolve_episode_url(title, episode, prefer_dubbed=False)
 
-            # Tenta versão legendado (remove -dublado do slug)
-            if "-dublado" in anime_slug:
-                legendado_slug = anime_slug.replace("-dublado", "")
-                episode_url = f"https://animefire.io/animes/{legendado_slug}/{episode}"
-                worker_url = await get_episode_url_from_worker(episode_url)
-
-                if worker_url != HLS_FALLBACK_URL:
-                    return worker_url
-
-        # Fallback: tenta construir slug manualmente (pode não funcionar)
-        import re
-
-        manual_slug = re.sub(r"[^\w\-]", "-", title.lower())
-        episode_url = f"https://animefire.io/animes/{manual_slug}/{episode}"
-
-        return await get_episode_url_from_worker(episode_url)
+        return video_url
 
     return HLS_FALLBACK_URL

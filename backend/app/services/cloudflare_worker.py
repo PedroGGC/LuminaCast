@@ -25,7 +25,7 @@ async def get_episode_url_from_worker(episode_url: str) -> str:
     Chama o Cloudflare Worker para obter a URL do vídeo.
 
     Args:
-        episode_url: URL do episódio no AnimeFire (ex: https://animefire.io/video/naruto-dublado/1)
+        episode_url: URL do episódio no AnimeFire (ex: https://animefire.io/animes/naruto-dublado/1)
 
     Returns:
         URL direta do vídeo (.mp4 ou .m3u8), ou fallback em caso de erro.
@@ -55,69 +55,43 @@ async def get_episode_url_from_worker(episode_url: str) -> str:
     return HLS_FALLBACK
 
 
-async def search_anime_from_worker(query: str) -> list[dict]:
+async def resolve_episode_url(
+    title: str, episode: int, prefer_dubbed: bool = True
+) -> str:
     """
-    Busca anime via Cloudflare Worker.
+    Rota única que resolve o anime e retorna a URL do episódio.
+    Faz a busca + construção da URL do episódio no Worker.
 
     Args:
-        query: Termo de busca
+        title: Título do anime
+        episode: Número do episódio
+        prefer_dubbed: Preferir versão dublada
 
     Returns:
-        Lista de resultados com 'url', 'slug' e 'title'
+        URL direta do vídeo (.mp4 ou .m3u8), ou fallback em caso de erro.
     """
     try:
-        worker_url = f"{WORKER_URL}/search?q={query}"
+        encoded_title = urllib.parse.quote(title, safe="")
+        worker_url = f"{WORKER_URL}/resolve?title={encoded_title}&episode={episode}&dub={'true' if prefer_dubbed else 'false'}"
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(worker_url, headers=HEADERS)
 
             if response.status_code == 200:
                 data = response.json()
-                return data.get("results", [])
+
+                if data.get("success") and data.get("episode_url"):
+                    episode_url = data["episode_url"]
+                    logger.info(f"Worker resolved: {episode_url}")
+
+                    # Agora chama /watch com a URL do episódio
+                    return await get_episode_url_from_worker(episode_url)
+                else:
+                    logger.warning(f"Worker resolve falhou: {data.get('error')}")
+            else:
+                logger.warning(f"Worker resolve retornou status {response.status_code}")
 
     except Exception as e:
-        logger.error(f"Erro na busca via Worker: {e}")
+        logger.error(f"Erro ao resolver episódio via Worker: {e}")
 
-    return []
-
-
-async def find_anime_slug(title: str, prefer_dubbed: bool = True) -> str | None:
-    """
-    Busca o slug correto do anime no AnimeFire.
-
-    Args:
-        title: Título do anime
-        prefer_dubbed: Preferir versão dublada
-
-    Returns:
-        Slug do anime (ex: sousou-no-frieren-dublado) ou None se não encontrar
-    """
-    results = await search_anime_from_worker(title)
-
-    if not results:
-        return None
-
-    # Primeiro tenta encontrar correspondência no título
-    title_lower = title.lower()
-
-    for result in results:
-        result_title = result.get("title", "").lower()
-        slug = result.get("slug", "")
-
-        # Se o título da busca bate parcialmente
-        if title_lower in result_title or result_title in title_lower:
-            if prefer_dubbed and "dublado" in slug:
-                return slug
-            elif not prefer_dubbed and "dublado" not in slug:
-                return slug
-
-    # Fallback: pega o primeiro resultado
-    first_result = results[0]
-    if prefer_dubbed:
-        # Procura um com dublado
-        for result in results:
-            if "dublado" in result.get("slug", ""):
-                return result.get("slug")
-        return first_result.get("slug")
-    else:
-        return first_result.get("slug")
+    return HLS_FALLBACK

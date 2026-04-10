@@ -1,0 +1,7 @@
+name = "luminacast"
+main = "worker.js"
+compatibility_date = "2023-12-01"
+
+[env.production]
+name = "luminacast"
+route = "luminacast.pedroogabrielg.workers.dev/*"
