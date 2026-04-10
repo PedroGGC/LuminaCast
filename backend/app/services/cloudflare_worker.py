@@ -5,6 +5,7 @@ Faz a ponte entre o backend e o Cloudflare Worker que scrapeia o AnimeFire.
 """
 
 import httpx
+import urllib.parse
 import logging
 
 logger = logging.getLogger("cloudflare_worker")
@@ -30,7 +31,7 @@ async def get_episode_url_from_worker(episode_url: str) -> str:
         URL direta do vídeo (.mp4 ou .m3u8), ou fallback em caso de erro.
     """
     try:
-        encoded_url = httpx.utils.quote(episode_url, safe="")
+        encoded_url = urllib.parse.quote(episode_url, safe="")
         worker_url = f"{WORKER_URL}/watch?url={encoded_url}"
 
         async with httpx.AsyncClient(timeout=30.0) as client:
