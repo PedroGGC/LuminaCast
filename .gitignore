@@ -6,6 +6,7 @@ venv/
 netflix.db
 *.sqlite3
 *.db
+anime-offline-database.json
 # Frontend
 node_modules/
 dist/
@@ -23,7 +24,7 @@ nul
 .planning
 luminacast.db-shm
 luminacast.db-wal
-.offline-db-version
+data
 DEPLOY_PLAN.md
 REFACTOR.md
 TASKS.md
