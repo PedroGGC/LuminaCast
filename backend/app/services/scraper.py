@@ -706,57 +706,37 @@ async def extract_episode_url(
     if media_type == "anime":
         mal_id = int(external_id) if external_id and external_id.isdigit() else None
 
-        # Constrói a URL do episódio no AnimeFire
-        if cached_slug:
-            anime_slug = cached_slug
-        else:
-            from app.services.anime_offline_db import get_anime_by_mal_id
+        # Busca o slug correto no AnimeFire via Cloudflare Worker
+        from app.services.cloudflare_worker import (
+            find_anime_slug,
+            get_episode_url_from_worker,
+        )
 
-            entry = get_anime_by_mal_id(mal_id) if mal_id else None
-            if entry:
-                import re
-
-                anime_slug = re.sub(r"[^\w\-]", "-", entry.get("title", "").lower())
-            else:
-                anime_slug = None
+        anime_slug = await find_anime_slug(title, prefer_dubbed=True)
 
         if anime_slug:
-            # Tenta o scraper local primeiro (pode funcionar localmente)
-            try:
-                local_url = await _scrape_provider(
-                    title, original_title, season, episode, mal_id, cached_slug
-                )
-                # Se não for fallback, retorna
-                if local_url != HLS_FALLBACK_URL:
-                    return local_url
-            except Exception:
-                pass
-
-            # Scraper local falhou, usa Cloudflare Worker
-            from app.services.cloudflare_worker import get_episode_url_from_worker
-
             # Tenta versão dublado primeiro
-            episode_url = f"https://animefire.io/video/{anime_slug}-dublado/{episode}"
+            episode_url = f"https://animefire.io/animes/{anime_slug}/{episode}"
+            logger.info(f"Tentando URL: {episode_url}")
             worker_url = await get_episode_url_from_worker(episode_url)
 
             if worker_url != HLS_FALLBACK_URL:
                 return worker_url
 
-            # Tenta versão legendado
-            episode_url = f"https://animefire.io/video/{anime_slug}/{episode}"
-            worker_url = await get_episode_url_from_worker(episode_url)
+            # Tenta versão legendado (remove -dublado do slug)
+            if "-dublado" in anime_slug:
+                legendado_slug = anime_slug.replace("-dublado", "")
+                episode_url = f"https://animefire.io/animes/{legendado_slug}/{episode}"
+                worker_url = await get_episode_url_from_worker(episode_url)
 
-            if worker_url != HLS_FALLBACK_URL:
-                return worker_url
+                if worker_url != HLS_FALLBACK_URL:
+                    return worker_url
 
-        # Sem slug conhecido, tenta direto via worker
-        from app.services.cloudflare_worker import get_episode_url_from_worker
-
-        # Usa title para tentar construir slug
+        # Fallback: tenta construir slug manualmente (pode não funcionar)
         import re
 
-        anime_slug = re.sub(r"[^\w\-]", "-", title.lower())
-        episode_url = f"https://animefire.io/video/{anime_slug}/{episode}"
+        manual_slug = re.sub(r"[^\w\-]", "-", title.lower())
+        episode_url = f"https://animefire.io/animes/{manual_slug}/{episode}"
 
         return await get_episode_url_from_worker(episode_url)
 

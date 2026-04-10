@@ -63,7 +63,7 @@ async def search_anime_from_worker(query: str) -> list[dict]:
         query: Termo de busca
 
     Returns:
-        Lista de resultados com 'url' e 'title'
+        Lista de resultados com 'url', 'slug' e 'title'
     """
     try:
         worker_url = f"{WORKER_URL}/search?q={query}"
@@ -79,3 +79,45 @@ async def search_anime_from_worker(query: str) -> list[dict]:
         logger.error(f"Erro na busca via Worker: {e}")
 
     return []
+
+
+async def find_anime_slug(title: str, prefer_dubbed: bool = True) -> str | None:
+    """
+    Busca o slug correto do anime no AnimeFire.
+
+    Args:
+        title: Título do anime
+        prefer_dubbed: Preferir versão dublada
+
+    Returns:
+        Slug do anime (ex: sousou-no-frieren-dublado) ou None se não encontrar
+    """
+    results = await search_anime_from_worker(title)
+
+    if not results:
+        return None
+
+    # Primeiro tenta encontrar correspondência no título
+    title_lower = title.lower()
+
+    for result in results:
+        result_title = result.get("title", "").lower()
+        slug = result.get("slug", "")
+
+        # Se o título da busca bate parcialmente
+        if title_lower in result_title or result_title in title_lower:
+            if prefer_dubbed and "dublado" in slug:
+                return slug
+            elif not prefer_dubbed and "dublado" not in slug:
+                return slug
+
+    # Fallback: pega o primeiro resultado
+    first_result = results[0]
+    if prefer_dubbed:
+        # Procura um com dublado
+        for result in results:
+            if "dublado" in result.get("slug", ""):
+                return result.get("slug")
+        return first_result.get("slug")
+    else:
+        return first_result.get("slug")
