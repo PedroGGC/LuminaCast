@@ -6,6 +6,8 @@ venv/
 netflix.db
 *.sqlite3
 *.db
+anime-offline-database.json
+anime-offline-database.jsonl
 
 # Frontend
 node_modules/

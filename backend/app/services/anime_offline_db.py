@@ -2,38 +2,20 @@ import json
 import re
 from pathlib import Path
 from functools import lru_cache
-import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-DB_PATH = BASE_DIR / "data" / "anime-offline-database.jsonl"
+DB_PATH = BASE_DIR / "data" / "anime-index.json"
 
 
 @lru_cache(maxsize=1)
 def load_offline_db() -> dict:
     with open(DB_PATH, "r", encoding="utf-8") as f:
         raw = json.load(f)
-
-    by_mal_id: dict[int, dict] = {}
-    by_title: dict[str, dict] = {}
-
-    for entry in raw["data"]:
-        for source_url in entry.get("sources", []):
-            mal_match = re.search(r"myanimelist\.net/anime/(\d+)", source_url)
-            if mal_match:
-                mal_id = int(mal_match.group(1))
-                entry["_mal_id"] = mal_id
-                by_mal_id[mal_id] = entry
-                break
-
-        title_key = entry["title"].lower().strip()
-        by_title[title_key] = entry
-
-    return {"by_mal_id": by_mal_id, "by_title": by_title, "data": raw["data"]}
+    return {int(k): v for k, v in raw.items()}
 
 
 def get_anime_by_mal_id(mal_id: int) -> dict | None:
-    db = load_offline_db()
-    return db["by_mal_id"].get(mal_id)
+    return load_offline_db().get(mal_id)
 
 
 def get_search_terms(mal_id: int) -> list[str]:
